@@ -22,7 +22,10 @@ func NewMWAgentSidecar(apiKey, target string) ecstypes.ContainerDefinition {
 }
 
 func NewInitContainer(lang Language) ecstypes.ContainerDefinition {
-	mountPath := fmt.Sprintf("%s/%s", MountBasePath, lang.MountSubpath())
+	mountPath := MountBasePath
+	if sub := lang.MountSubpath(); sub != "" {
+		mountPath = fmt.Sprintf("%s/%s", MountBasePath, sub)
+	}
 	return ecstypes.ContainerDefinition{
 		Name:      aws.String(ContainerInit),
 		Image:     aws.String(lang.InitImage()),
@@ -66,20 +69,33 @@ func NewFirelensLogConfig() *ecstypes.LogConfiguration {
 	}
 }
 
+var langSpecificEnvKeys = map[string]bool{
+	"JAVA_TOOL_OPTIONS":          true,
+	"NODE_OPTIONS":               true,
+	"NODE_PATH":                  true,
+	"PYTHONPATH":                 true,
+	"MW_API_KEY":                 true,
+	"MW_TARGET":                  true,
+	"MW_SERVICE_NAME":            true,
+	"OTEL_EXPORTER_OTLP_ENDPOINT": true,
+	"OTEL_SERVICE_NAME":          true,
+	"OTEL_RESOURCE_ATTRIBUTES":   true,
+}
+
 func APMEnvVars(lang Language, apiKey, target, serviceName string) []ecstypes.KeyValuePair {
 	vars := []ecstypes.KeyValuePair{
-		{Name: aws.String("MW_API_KEY"), Value: aws.String(apiKey)},
-		{Name: aws.String("MW_TARGET"), Value: aws.String(target)},
-		{Name: aws.String("MW_SERVICE_NAME"), Value: aws.String(serviceName)},
+		{Name: aws.String("OTEL_EXPORTER_OTLP_ENDPOINT"), Value: aws.String(target)},
+		{Name: aws.String("OTEL_SERVICE_NAME"), Value: aws.String(serviceName)},
+		{Name: aws.String("OTEL_RESOURCE_ATTRIBUTES"), Value: aws.String(fmt.Sprintf("mw.account_key=%s", apiKey))},
 	}
 
-	switch lang {
-	case LangJava:
+	if lang == LangJava || lang == LangAll {
 		vars = append(vars, ecstypes.KeyValuePair{
 			Name:  aws.String("JAVA_TOOL_OPTIONS"),
-			Value: aws.String(fmt.Sprintf("-javaagent:%s/java/middleware-javaagent.jar", MountBasePath)),
+			Value: aws.String(fmt.Sprintf("-javaagent:%s/java/opentelemetry-javaagent.jar", MountBasePath)),
 		})
-	case LangNode:
+	}
+	if lang == LangNode || lang == LangAll {
 		vars = append(vars, ecstypes.KeyValuePair{
 			Name:  aws.String("NODE_OPTIONS"),
 			Value: aws.String(fmt.Sprintf("--require %s/node/instrument.js", MountBasePath)),
@@ -88,7 +104,8 @@ func APMEnvVars(lang Language, apiKey, target, serviceName string) []ecstypes.Ke
 			Name:  aws.String("NODE_PATH"),
 			Value: aws.String(fmt.Sprintf("%s/node/node_modules", MountBasePath)),
 		})
-	case LangPython:
+	}
+	if lang == LangPython || lang == LangAll {
 		vars = append(vars, ecstypes.KeyValuePair{
 			Name:  aws.String("PYTHONPATH"),
 			Value: aws.String(fmt.Sprintf("%s/python/packages/opentelemetry/instrumentation/auto_instrumentation:%s/python/packages", MountBasePath, MountBasePath)),

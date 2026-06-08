@@ -15,17 +15,19 @@ type Options struct {
 	Language    Language
 	EnableAPM   bool
 	EnableLogs  bool
+	Fargate     bool
 }
 
 type PatchResult struct {
-	AddedMWAgent  bool
-	AddedInit     bool
-	AddedFirelens bool
+	AddedMWAgent    bool
+	AddedInit       bool
+	AddedFirelens   bool
 	SkippedMWAgent  bool
 	SkippedInit     bool
 	SkippedFirelens bool
-	TotalCPU      int32
-	TotalMemory   int32
+	LogOverridden   bool
+	TotalCPU        int32
+	TotalMemory     int32
 }
 
 func HasContainer(containers []ecstypes.ContainerDefinition, name string) bool {
@@ -48,9 +50,10 @@ func RemoveContainer(containers []ecstypes.ContainerDefinition, name string) []e
 }
 
 type ReplaceDecision struct {
-	ReplaceMWAgent  bool
-	ReplaceInit     bool
-	ReplaceFirelens bool
+	ReplaceMWAgent   bool
+	ReplaceInit      bool
+	ReplaceFirelens  bool
+	OverrideLogConfig bool
 }
 
 func Patch(td *ecstypes.TaskDefinition, opts Options, decisions ReplaceDecision) PatchResult {
@@ -98,7 +101,10 @@ func Patch(td *ecstypes.TaskDefinition, opts Options, decisions ReplaceDecision)
 
 		ensureVolume(td)
 
-		mountPath := fmt.Sprintf("%s/%s", MountBasePath, opts.Language.MountSubpath())
+		mountPath := MountBasePath
+		if sub := opts.Language.MountSubpath(); sub != "" {
+			mountPath = fmt.Sprintf("%s/%s", MountBasePath, sub)
+		}
 		envVars := APMEnvVars(opts.Language, opts.MWApiKey, opts.MWTarget, opts.ServiceName)
 
 		for i := range td.ContainerDefinitions {
@@ -119,17 +125,46 @@ func Patch(td *ecstypes.TaskDefinition, opts Options, decisions ReplaceDecision)
 			if !aws.ToBool(c.Essential) || aws.ToString(c.Name) == ContainerFirelens {
 				continue
 			}
-			if c.LogConfiguration != nil && c.LogConfiguration.LogDriver == ecstypes.LogDriverAwslogs {
+			if c.LogConfiguration == nil {
 				c.LogConfiguration = logConfig
-			} else if c.LogConfiguration == nil {
+			} else if decisions.OverrideLogConfig {
 				c.LogConfiguration = logConfig
+				result.LogOverridden = true
 			}
 		}
 	}
 
-	result.TotalCPU, result.TotalMemory = recalcResources(td)
+	if opts.Fargate {
+		td.NetworkMode = ecstypes.NetworkModeAwsvpc
+		hasFargate := false
+		for _, c := range td.RequiresCompatibilities {
+			if c == ecstypes.CompatibilityFargate {
+				hasFargate = true
+				break
+			}
+		}
+		if !hasFargate {
+			td.RequiresCompatibilities = append(td.RequiresCompatibilities, ecstypes.CompatibilityFargate)
+		}
+	}
+
+	if !result.AddedFirelens && !HasContainer(td.ContainerDefinitions, ContainerFirelens) && hasFirelensLogConfig(td.ContainerDefinitions) {
+		td.ContainerDefinitions = append(td.ContainerDefinitions, NewFirelensContainer())
+		result.AddedFirelens = true
+	}
+
+	result.TotalCPU, result.TotalMemory = recalcResources(td, opts.Fargate)
 
 	return result
+}
+
+func hasFirelensLogConfig(containers []ecstypes.ContainerDefinition) bool {
+	for _, c := range containers {
+		if c.LogConfiguration != nil && c.LogConfiguration.LogDriver == ecstypes.LogDriverAwsfirelens {
+			return true
+		}
+	}
+	return false
 }
 
 func ensureVolume(td *ecstypes.TaskDefinition) {
@@ -152,7 +187,8 @@ func mergeEnvVars(c *ecstypes.ContainerDefinition, newVars []ecstypes.KeyValuePa
 
 	merged := make([]ecstypes.KeyValuePair, 0, len(c.Environment)+len(newVars))
 	for _, v := range c.Environment {
-		if !newKeys[aws.ToString(v.Name)] {
+		key := aws.ToString(v.Name)
+		if !newKeys[key] && !langSpecificEnvKeys[key] {
 			merged = append(merged, v)
 		}
 	}
@@ -161,8 +197,9 @@ func mergeEnvVars(c *ecstypes.ContainerDefinition, newVars []ecstypes.KeyValuePa
 }
 
 func ensureMountPoint(c *ecstypes.ContainerDefinition, mountPath string) {
-	for _, mp := range c.MountPoints {
+	for i, mp := range c.MountPoints {
 		if aws.ToString(mp.SourceVolume) == VolumeName {
+			c.MountPoints[i].ContainerPath = aws.String(mountPath)
 			return
 		}
 	}
@@ -185,7 +222,7 @@ func ensureDependsOn(c *ecstypes.ContainerDefinition) {
 	})
 }
 
-func recalcResources(td *ecstypes.TaskDefinition) (int32, int32) {
+func recalcResources(td *ecstypes.TaskDefinition, fargate bool) (int32, int32) {
 	var totalCPU, totalMem int32
 	for _, c := range td.ContainerDefinitions {
 		totalCPU += c.Cpu
@@ -193,7 +230,47 @@ func recalcResources(td *ecstypes.TaskDefinition) (int32, int32) {
 			totalMem += *c.Memory
 		}
 	}
+
+	if fargate {
+		totalCPU, totalMem = snapToFargate(totalCPU, totalMem)
+	}
+
 	td.Cpu = aws.String(strconv.Itoa(int(totalCPU)))
 	td.Memory = aws.String(strconv.Itoa(int(totalMem)))
 	return totalCPU, totalMem
+}
+
+type fargateTier struct {
+	cpu    int32
+	minMem int32
+	maxMem int32
+	step   int32
+}
+
+var fargateTiers = []fargateTier{
+	{256, 512, 2048, 512},
+	{512, 1024, 4096, 1024},
+	{1024, 2048, 8192, 1024},
+	{2048, 4096, 16384, 1024},
+	{4096, 8192, 30720, 1024},
+	{8192, 16384, 61440, 4096},
+	{16384, 32768, 122880, 8192},
+}
+
+func snapToFargate(cpu, mem int32) (int32, int32) {
+	for _, t := range fargateTiers {
+		if cpu <= t.cpu {
+			snappedMem := t.minMem
+			if mem > t.minMem {
+				steps := (mem - t.minMem + t.step - 1) / t.step
+				snappedMem = t.minMem + steps*t.step
+				if snappedMem > t.maxMem {
+					snappedMem = t.maxMem
+				}
+			}
+			return t.cpu, snappedMem
+		}
+	}
+	last := fargateTiers[len(fargateTiers)-1]
+	return last.cpu, last.maxMem
 }

@@ -3,8 +3,10 @@ package prompt
 import (
 	"fmt"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/chzyer/readline"
 )
@@ -20,7 +22,8 @@ const (
 )
 
 type Prompter struct {
-	rl *readline.Instance
+	rl      *readline.Instance
+	sigChan chan os.Signal
 }
 
 func New() (*Prompter, error) {
@@ -34,10 +37,20 @@ func New() (*Prompter, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initializing readline: %w", err)
 	}
-	return &Prompter{rl: rl}, nil
+
+	p := &Prompter{rl: rl, sigChan: make(chan os.Signal, 1)}
+	signal.Notify(p.sigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-p.sigChan
+		rl.Close()
+		os.Exit(130)
+	}()
+
+	return p, nil
 }
 
 func (p *Prompter) Close() {
+	signal.Stop(p.sigChan)
 	p.rl.Close()
 }
 

@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 )
 
@@ -10,6 +12,6 @@ var rootCmd = &cobra.Command{
 	Long:  "Inject Middleware APM and log routing into AWS ECS task definitions.",
 }
 
-func Execute() error {
-	return rootCmd.Execute()
+func Execute(ctx context.Context) error {
+	return rootCmd.ExecuteContext(ctx)
 }

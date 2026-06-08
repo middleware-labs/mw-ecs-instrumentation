@@ -1,11 +1,9 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/spf13/cobra"
@@ -28,21 +26,22 @@ var discoverCmd = &cobra.Command{
 	Short: "List all active task definition families and their instrumentation status",
 	Long: `Discover all active ECS task definition families in the account and show
 whether each one already has Middleware instrumentation (mw-agent, init
-container, log_router).`,
+container, log configuration) and the launch type.`,
 	Example: `  mw-ecs-instrument discover
   mw-ecs-instrument discover --region us-west-2`,
 	RunE: runDiscover,
 }
 
 type discoveryRow struct {
-	name    string
-	hasMW   bool
-	hasInit bool
-	hasFL   bool
+	name       string
+	hasMW      bool
+	hasInit    bool
+	logConfig  instrument.LogConfigType
+	launchType string
 }
 
 func runDiscover(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+	ctx := cmd.Context()
 	client, err := mwaws.NewClient(ctx, discoverFlags.region)
 	if err != nil {
 		return err
@@ -56,20 +55,21 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "\033[32m[OK]\033[0m    Found %d families\n\n", len(families))
 
 	var rows []discoveryRow
-	var errors []string
+	var fetchErrors []string
 
 	for _, family := range families {
 		td, err := client.LatestTaskDefinition(ctx, family)
 		if err != nil {
-			errors = append(errors, fmt.Sprintf("%s: %v", family, err))
+			fetchErrors = append(fetchErrors, fmt.Sprintf("%s: %v", family, err))
 			continue
 		}
 
 		rows = append(rows, discoveryRow{
-			name:    fmt.Sprintf("%s:%d", aws.ToString(td.Family), td.Revision),
-			hasMW:   instrument.HasContainer(td.ContainerDefinitions, instrument.ContainerMWAgent),
-			hasInit: instrument.HasContainer(td.ContainerDefinitions, instrument.ContainerInit),
-			hasFL:   instrument.HasContainer(td.ContainerDefinitions, instrument.ContainerFirelens),
+			name:       fmt.Sprintf("%s:%d", aws.ToString(td.Family), td.Revision),
+			hasMW:      instrument.HasContainer(td.ContainerDefinitions, instrument.ContainerMWAgent),
+			hasInit:    instrument.HasContainer(td.ContainerDefinitions, instrument.ContainerInit),
+			logConfig:  instrument.DetectLogConfig(td.ContainerDefinitions),
+			launchType: instrument.DetectLaunchType(td.Compatibilities),
 		})
 	}
 
@@ -82,19 +82,23 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 
 	colMW := "MW-AGENT"
 	colInit := "APM-INIT"
-	colFL := "FIRELENS"
+	colLog := "LOG CONFIG"
+	colLaunch := "LAUNCH"
 
-	w := tabwriter.NewWriter(os.Stderr, 0, 0, 3, ' ', 0)
-	fmt.Fprintf(w, "  \033[1m%-*s   %-8s   %-8s   %-8s\033[0m\n", maxName, "FAMILY", colMW, colInit, colFL)
-	fmt.Fprintf(w, "  %s   %s   %s   %s\n", strings.Repeat("─", maxName), strings.Repeat("─", len(colMW)), strings.Repeat("─", len(colInit)), strings.Repeat("─", len(colFL)))
+	fmt.Fprintf(os.Stderr, "  \033[1m%-*s   %-*s   %-*s   %-*s   %-*s\033[0m\n",
+		maxName, "FAMILY", len(colMW), colMW, len(colInit), colInit, len(colLog), colLog, len(colLaunch), colLaunch)
+	fmt.Fprintf(os.Stderr, "  %s   %s   %s   %s   %s\n",
+		strings.Repeat("─", maxName), strings.Repeat("─", len(colMW)), strings.Repeat("─", len(colInit)),
+		strings.Repeat("─", len(colLog)), strings.Repeat("─", len(colLaunch)))
 
 	var instrumented, notInstrumented int
 	for _, r := range rows {
-		fmt.Fprintf(w, "  %-*s   %s   %s   %s\n",
+		fmt.Fprintf(os.Stderr, "  %-*s   %s   %s   %s   %s\n",
 			maxName, r.name,
-			statusCell(r.hasMW, len(colMW)),
-			statusCell(r.hasInit, len(colInit)),
-			statusCell(r.hasFL, len(colFL)),
+			boolCell(r.hasMW, len(colMW)),
+			boolCell(r.hasInit, len(colInit)),
+			logConfigCell(r.logConfig, len(colLog)),
+			textCell(r.launchType, len(colLaunch)),
 		)
 		if r.hasMW {
 			instrumented++
@@ -102,9 +106,8 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 			notInstrumented++
 		}
 	}
-	w.Flush()
 
-	for _, e := range errors {
+	for _, e := range fetchErrors {
 		fmt.Fprintf(os.Stderr, "\033[31m[ERROR]\033[0m %s\n", e)
 	}
 
@@ -112,13 +115,36 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func statusCell(present bool, colWidth int) string {
-	// "✔ yes" = 5 visible chars, "✘ no " = 5 visible chars (with trailing space)
-	// Pad both to colWidth visible characters for alignment.
+func boolCell(present bool, colWidth int) string {
 	if present {
-		text := "✔ yes"
-		return fmt.Sprintf("\033[32m%s\033[0m%s", text, strings.Repeat(" ", colWidth-5))
+		return padColored("\033[32m", "✔ yes", colWidth)
 	}
-	text := "✘ no"
-	return fmt.Sprintf("\033[33m%s\033[0m%s", text, strings.Repeat(" ", colWidth-4))
+	return padColored("\033[33m", "✘ no", colWidth)
+}
+
+func logConfigCell(lc instrument.LogConfigType, colWidth int) string {
+	text := string(lc)
+	switch lc {
+	case instrument.LogConfigFirelens:
+		return padColored("\033[32m", text, colWidth)
+	case instrument.LogConfigCloudWatch:
+		return padColored("\033[36m", text, colWidth)
+	case instrument.LogConfigNone:
+		return padColored("\033[33m", text, colWidth)
+	default:
+		return padColored("\033[33m", text, colWidth)
+	}
+}
+
+func textCell(text string, colWidth int) string {
+	return padColored("\033[36m", text, colWidth)
+}
+
+func padColored(color, text string, colWidth int) string {
+	visLen := len([]rune(text))
+	pad := colWidth - visLen
+	if pad < 0 {
+		pad = 0
+	}
+	return fmt.Sprintf("%s%s\033[0m%s", color, text, strings.Repeat(" ", pad))
 }
