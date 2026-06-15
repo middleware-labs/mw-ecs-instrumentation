@@ -47,6 +47,7 @@ type outputContainerDefinition struct {
 	Memory                *int32                       `json:"memory,omitempty"`
 	PortMappings          []outputPortMapping          `json:"portMappings,omitempty"`
 	Essential             bool                         `json:"essential"`
+	Command               []string                     `json:"command,omitempty"`
 	Environment           []outputKeyValuePair         `json:"environment,omitempty"`
 	MountPoints           []outputMountPoint           `json:"mountPoints,omitempty"`
 	VolumesFrom           []interface{}                `json:"volumesFrom,omitempty"`
@@ -55,11 +56,16 @@ type outputContainerDefinition struct {
 	FirelensConfiguration *outputFirelensConfiguration `json:"firelensConfiguration,omitempty"`
 	SystemControls        []interface{}                `json:"systemControls,omitempty"`
 	User                  string                       `json:"user,omitempty"`
+	Privileged            *bool                        `json:"privileged,omitempty"`
+}
+
+type outputHostVolumeProperties struct {
+	SourcePath string `json:"sourcePath,omitempty"`
 }
 
 type outputVolume struct {
-	Name string      `json:"name"`
-	Host interface{} `json:"host,omitempty"`
+	Name string                      `json:"name"`
+	Host *outputHostVolumeProperties `json:"host,omitempty"`
 }
 
 type outputTaskDefinition struct {
@@ -97,7 +103,11 @@ func SerializeTaskDefinition(td *ecstypes.TaskDefinition) ([]byte, error) {
 	for _, v := range td.Volumes {
 		ov := outputVolume{Name: aws.ToString(v.Name)}
 		if v.Host != nil {
-			ov.Host = struct{}{}
+			hvp := &outputHostVolumeProperties{}
+			if v.Host.SourcePath != nil {
+				hvp.SourcePath = aws.ToString(v.Host.SourcePath)
+			}
+			ov.Host = hvp
 		}
 		out.Volumes = append(out.Volumes, ov)
 	}
@@ -115,8 +125,14 @@ func SerializeTaskDefinition(td *ecstypes.TaskDefinition) ([]byte, error) {
 			Essential: aws.ToBool(c.Essential),
 		}
 
+		if len(c.Command) > 0 {
+			oc.Command = c.Command
+		}
 		if c.User != nil {
 			oc.User = aws.ToString(c.User)
+		}
+		if c.Privileged != nil && aws.ToBool(c.Privileged) {
+			oc.Privileged = c.Privileged
 		}
 
 		for _, pm := range c.PortMappings {

@@ -1,7 +1,6 @@
 package instrument
 
 import (
-	"fmt"
 	"strconv"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -9,13 +8,15 @@ import (
 )
 
 type Options struct {
-	MWApiKey    string
-	MWTarget    string
-	ServiceName string
-	Language    Language
-	EnableAPM   bool
-	EnableLogs  bool
-	Fargate     bool
+	MWApiKey           string
+	MWTarget           string
+	ServiceName        string
+	Language           Language
+	LibC               LibC
+	EnableAPM          bool
+	EnableLogs         bool
+	Fargate            bool
+	LocalhostReachable bool
 }
 
 type PatchResult struct {
@@ -86,8 +87,13 @@ func Patch(td *ecstypes.TaskDefinition, opts Options, decisions ReplaceDecision)
 	}
 
 	if !result.SkippedMWAgent {
-		td.ContainerDefinitions = append(td.ContainerDefinitions, NewMWAgentSidecar(opts.MWApiKey, opts.MWTarget))
+		td.ContainerDefinitions = append(td.ContainerDefinitions, NewMWAgentSidecar(opts.MWApiKey, opts.MWTarget, opts.Fargate))
 		result.AddedMWAgent = true
+		if !opts.Fargate {
+			for _, v := range MWAgentEC2Volumes() {
+				ensureNamedVolume(td, v)
+			}
+		}
 	}
 
 	if opts.EnableLogs && !result.SkippedFirelens {
@@ -96,20 +102,18 @@ func Patch(td *ecstypes.TaskDefinition, opts Options, decisions ReplaceDecision)
 	}
 
 	if opts.EnableAPM && !result.SkippedInit {
-		td.ContainerDefinitions = append(td.ContainerDefinitions, NewInitContainer(opts.Language))
+		td.ContainerDefinitions = append(td.ContainerDefinitions, NewInitContainer(opts.Language, opts.LibC))
 		result.AddedInit = true
 
 		ensureVolume(td)
 
-		mountPath := MountBasePath
-		if sub := opts.Language.MountSubpath(); sub != "" {
-			mountPath = fmt.Sprintf("%s/%s", MountBasePath, sub)
-		}
-		envVars := APMEnvVars(opts.Language, opts.MWApiKey, opts.MWTarget, opts.ServiceName)
+		mountPath := opts.Language.MountPath(opts.LibC)
+		envVars := APMEnvVars(opts.Language, opts.LibC, opts.MWApiKey, opts.MWTarget, opts.ServiceName, opts.LocalhostReachable)
 
 		for i := range td.ContainerDefinitions {
 			c := &td.ContainerDefinitions[i]
-			if !aws.ToBool(c.Essential) || aws.ToString(c.Name) == ContainerFirelens {
+			name := aws.ToString(c.Name)
+			if name == ContainerMWAgent || name == ContainerInit || name == ContainerFirelens {
 				continue
 			}
 			mergeEnvVars(c, envVars)
@@ -122,7 +126,8 @@ func Patch(td *ecstypes.TaskDefinition, opts Options, decisions ReplaceDecision)
 		logConfig := NewFirelensLogConfig()
 		for i := range td.ContainerDefinitions {
 			c := &td.ContainerDefinitions[i]
-			if !aws.ToBool(c.Essential) || aws.ToString(c.Name) == ContainerFirelens {
+			name := aws.ToString(c.Name)
+			if name == ContainerMWAgent || name == ContainerInit || name == ContainerFirelens {
 				continue
 			}
 			if c.LogConfiguration == nil {
@@ -177,6 +182,16 @@ func ensureVolume(td *ecstypes.TaskDefinition) {
 		Name: aws.String(VolumeName),
 		Host: &ecstypes.HostVolumeProperties{},
 	})
+}
+
+func ensureNamedVolume(td *ecstypes.TaskDefinition, vol ecstypes.Volume) {
+	name := aws.ToString(vol.Name)
+	for _, v := range td.Volumes {
+		if aws.ToString(v.Name) == name {
+			return
+		}
+	}
+	td.Volumes = append(td.Volumes, vol)
 }
 
 func mergeEnvVars(c *ecstypes.ContainerDefinition, newVars []ecstypes.KeyValuePair) {

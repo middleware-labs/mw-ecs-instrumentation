@@ -6,18 +6,22 @@ import (
 )
 
 const (
-	MWAgentImage      = "ghcr.io/middleware-labs/mw-host-agent:latest"
-	InitImageJava     = "ghcr.io/middleware-labs/mw-ecs-autoinstrumentation-java:latest"
-	InitImageNode     = "ghcr.io/middleware-labs/mw-ecs-autoinstrumentation-node:latest"
-	InitImagePython   = "ghcr.io/middleware-labs/mw-ecs-autoinstrumentation-python:latest"
-	InitImageAll      = "ghcr.io/middleware-labs/mw-ecs-autoinstrumentation-all:latest"
+	MWAgentImage      = "ghcr.io/middleware-labs/mw-host-agent:master"
+	InitImageJava     = "ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:2.19.0"
+	InitImageNode     = "ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-nodejs:0.53.0"
+	InitImagePython   = "ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-python:0.59b0"
 	FluentBitImage    = "public.ecr.aws/aws-observability/aws-for-fluent-bit:stable"
 	VolumeName        = "mw-agent-instrumentation"
-	SidecarCPU        = 128
-	SidecarMemory     = 200
+	SidecarCPUFargate = 256
+	SidecarCPUEC2     = 100
+	SidecarMemoryEC2  = 512
 	InitCPU           = 128
 	InitMemory        = 128
-	MountBasePath     = "/mnt/mw-agent/instrumentation"
+	MountPathJava     = "/otel-auto-instrumentation-java"
+	MountPathNode     = "/otel-auto-instrumentation-nodejs"
+	MountPathPython   = "/otel-auto-instrumentation-python"
+	SidecarOTLPEndpoint = "http://localhost:9320"
+	MuslSuffix          = "-musl"
 	ContainerMWAgent  = "mw-agent"
 	ContainerInit     = "instrumentation-init"
 	ContainerFirelens = "log_router"
@@ -29,12 +33,26 @@ const (
 	LangJava   Language = "java"
 	LangNode   Language = "node"
 	LangPython Language = "python"
-	LangAll    Language = "all"
 )
 
 func (l Language) Valid() bool {
 	switch l {
-	case LangJava, LangNode, LangPython, LangAll:
+	case LangJava, LangNode, LangPython:
+		return true
+	}
+	return false
+}
+
+type LibC string
+
+const (
+	LibCGlibc LibC = "glibc"
+	LibCMusl  LibC = "musl"
+)
+
+func (l LibC) Valid() bool {
+	switch l {
+	case LibCGlibc, LibCMusl:
 		return true
 	}
 	return false
@@ -48,17 +66,40 @@ func (l Language) InitImage() string {
 		return InitImageNode
 	case LangPython:
 		return InitImagePython
-	case LangAll:
-		return InitImageAll
-	}
-	return ""
-}
-
-func (l Language) MountSubpath() string {
-	if l == LangAll {
+	default:
 		return ""
 	}
-	return string(l)
+}
+
+func (l Language) InitCommand(mountPath string) []string {
+	switch l {
+	case LangJava:
+		return []string{"cp", "/javaagent.jar", mountPath + "/javaagent.jar"}
+	case LangNode:
+		return []string{"cp", "-r", "/autoinstrumentation/.", mountPath}
+	case LangPython:
+		return []string{"cp", "-r", "/autoinstrumentation/.", mountPath}
+	default:
+		return nil
+	}
+}
+
+func (l Language) MountPath(libc LibC) string {
+	var base string
+	switch l {
+	case LangJava:
+		base = MountPathJava
+	case LangNode:
+		base = MountPathNode
+	case LangPython:
+		base = MountPathPython
+		if libc == LibCMusl {
+			base =  base + MuslSuffix
+		}
+	default:
+		return ""
+	}
+	return base
 }
 
 type LogConfigType string
@@ -93,6 +134,10 @@ func DetectLaunchType(compatibilities []ecstypes.Compatibility) string {
 		}
 	}
 	return "EC2"
+}
+
+func IsLocalhostReachable(networkMode ecstypes.NetworkMode) bool {
+	return networkMode == ecstypes.NetworkModeAwsvpc || networkMode == ecstypes.NetworkModeHost
 }
 
 func HasExistingLogConfig(containers []ecstypes.ContainerDefinition) bool {

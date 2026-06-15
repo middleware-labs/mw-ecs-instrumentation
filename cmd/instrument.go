@@ -32,6 +32,7 @@ var instrumentFlags struct {
 	secGroups   string
 	dryRun      bool
 	all         bool
+	libc        string
 }
 
 func init() {
@@ -41,7 +42,7 @@ func init() {
 	f.StringVar(&instrumentFlags.mwTarget, "mw-target", "", "Middleware target URL (required)")
 	f.StringVar(&instrumentFlags.region, "region", "", "AWS region")
 	f.StringVar(&instrumentFlags.serviceName, "service-name", "", "MW_SERVICE_NAME for the app container")
-	f.StringVar(&instrumentFlags.language, "language", "", "APM language: all, java, node, python")
+	f.StringVar(&instrumentFlags.language, "language", "", "APM language: java, node, python")
 	f.BoolVar(&instrumentFlags.enableAPM, "enable-apm", false, "Add APM init container")
 	f.BoolVar(&instrumentFlags.enableLogs, "enable-logs", false, "Add FireLens log_router sidecar + awsfirelens log config")
 	f.BoolVar(&instrumentFlags.fargate, "fargate", false, "Configure for Fargate (awsvpc network mode)")
@@ -53,6 +54,7 @@ func init() {
 	f.StringVar(&instrumentFlags.secGroups, "security-groups", "", "Security group IDs for Fargate --run, comma-separated")
 	f.BoolVar(&instrumentFlags.dryRun, "dry-run", false, "Print modified task definition without writing or registering")
 	f.BoolVar(&instrumentFlags.all, "all", false, "Discover and instrument all active task definition families")
+	f.StringVar(&instrumentFlags.libc, "libc", "", "C library variant for init container image: glibc, musl")
 
 	instrumentCmd.MarkFlagRequired("mw-api-key")
 	instrumentCmd.MarkFlagRequired("mw-target")
@@ -95,12 +97,6 @@ func runInstrument(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--task-definition and --all are mutually exclusive")
 	}
 
-	if instrumentFlags.all || len(instrumentFlags.taskDefs) > 1 {
-		instrumentFlags.language = "all"
-	} else if instrumentFlags.language == "" {
-		instrumentFlags.language = "all"
-	}
-
 	ctx := cmd.Context()
 	client, err := mwaws.NewClient(ctx, instrumentFlags.region)
 	if err != nil {
@@ -125,12 +121,12 @@ func runInstrument(cmd *cobra.Command, args []string) error {
 }
 
 func runBatchInstrument(ctx context.Context, client *mwaws.Client, newPrompter func() (*prompt.Prompter, error)) error {
-	fmt.Fprintln(os.Stderr, "\033[36m[INFO]\033[0m  Discovering task definition families ...")
+	fmt.Fprintf(os.Stderr, "\n\033[36m━━━ Discovering Task Definitions ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m\n\n")
 	families, err := client.ListFamilies(ctx)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "\033[32m[OK]\033[0m    Found %d families\n", len(families))
+	fmt.Fprintf(os.Stderr, "  Found \033[1m%d\033[0m families\n", len(families))
 
 	p, err := newPrompter()
 	if err != nil {
@@ -138,28 +134,25 @@ func runBatchInstrument(ctx context.Context, client *mwaws.Client, newPrompter f
 	}
 	defer p.Close()
 
-	interactive := !instrumentFlags.enableAPM && !instrumentFlags.enableLogs
-	if interactive {
-		resolveInteractiveFlags(p, "batch")
-	}
+	resolveInteractiveFlags(p)
 
 	var registered []registeredTask
 	var instrumented, notInstrumented int
 	for _, family := range families {
-		fmt.Fprintf(os.Stderr, "\n\033[36m[INFO]\033[0m  Processing: %s\n", family)
+		fmt.Fprintf(os.Stderr, "\n\033[36m━━━ %s ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m\n", family)
 
 		td, err := client.LatestTaskDefinition(ctx, family)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "\033[31m[ERROR]\033[0m %s: %v\n", family, err)
+			fmt.Fprintf(os.Stderr, "  \033[31m✘\033[0m %s: %v\n", family, err)
 			notInstrumented++
 			continue
 		}
 
-		opts, decisions := buildOptionsNonInteractive(td)
+		opts, decisions := buildOptionsPerTask(ctx, p, td)
 		result := instrument.Patch(td, opts, decisions)
 		reg, err := handleOutput(td, aws.ToString(td.Family), result, opts, ctx, client)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "\033[31m[ERROR]\033[0m %s: %v\n", family, err)
+			fmt.Fprintf(os.Stderr, "  \033[31m✘\033[0m %s: %v\n", family, err)
 			notInstrumented++
 			continue
 		}
@@ -184,28 +177,25 @@ func runMultiInstrument(ctx context.Context, client *mwaws.Client, newPrompter f
 	}
 	defer p.Close()
 
-	interactive := !instrumentFlags.enableAPM && !instrumentFlags.enableLogs
-	if interactive {
-		resolveInteractiveFlags(p, "batch")
-	}
+	resolveInteractiveFlags(p)
 
 	var registered []registeredTask
 	var instrumented, notInstrumented int
 	for _, taskDef := range taskDefs {
-		fmt.Fprintf(os.Stderr, "\n\033[36m[INFO]\033[0m  Processing: %s\n", taskDef)
+		fmt.Fprintf(os.Stderr, "\n\033[36m━━━ %s ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m\n", taskDef)
 
 		td, err := client.DescribeTaskDefinition(ctx, taskDef)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "\033[31m[ERROR]\033[0m %s: %v\n", taskDef, err)
+			fmt.Fprintf(os.Stderr, "  \033[31m✘\033[0m %s: %v\n", taskDef, err)
 			notInstrumented++
 			continue
 		}
 
-		opts, decisions := buildOptionsNonInteractive(td)
+		opts, decisions := buildOptionsPerTask(ctx, p, td)
 		result := instrument.Patch(td, opts, decisions)
 		reg, err := handleOutput(td, aws.ToString(td.Family), result, opts, ctx, client)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "\033[31m[ERROR]\033[0m %s: %v\n", taskDef, err)
+			fmt.Fprintf(os.Stderr, "  \033[31m✘\033[0m %s: %v\n", taskDef, err)
 			notInstrumented++
 			continue
 		}
@@ -224,43 +214,36 @@ func runMultiInstrument(ctx context.Context, client *mwaws.Client, newPrompter f
 }
 
 func runSingleInstrument(ctx context.Context, client *mwaws.Client, newPrompter func() (*prompt.Prompter, error), taskDef string) error {
-	fmt.Fprintf(os.Stderr, "\033[36m[INFO]\033[0m  Fetching task definition: %s ...\n", taskDef)
+	fmt.Fprintf(os.Stderr, "\n\033[36m━━━ Fetching Task Definition ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m\n\n")
+	fmt.Fprintf(os.Stderr, "  Fetching: %s\n", taskDef)
 	td, err := client.DescribeTaskDefinition(ctx, taskDef)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stderr, "\033[32m[OK]\033[0m    Fetched task definition successfully")
 
 	family := aws.ToString(td.Family)
 	networkMode := string(td.NetworkMode)
-	fmt.Fprintf(os.Stderr, "\033[36m[INFO]\033[0m  Family: %s  |  Network mode: %s\n", family, networkMode)
-
-	fmt.Fprintln(os.Stderr, "\n\033[36m[INFO]\033[0m  Existing containers:")
-	for _, c := range td.ContainerDefinitions {
-		fmt.Fprintf(os.Stderr, "  - \033[36m%s\033[0m\n", aws.ToString(c.Name))
+	if networkMode == "" {
+		networkMode = "default"
+	}
+	fmt.Fprintf(os.Stderr, "  Family:       \033[1m%s\033[0m\n", family)
+	fmt.Fprintf(os.Stderr, "  Network mode: \033[1m%s\033[0m\n", networkMode)
+	fmt.Fprintf(os.Stderr, "  Containers:   ")
+	for i, c := range td.ContainerDefinitions {
+		if i > 0 {
+			fmt.Fprintf(os.Stderr, ", ")
+		}
+		fmt.Fprintf(os.Stderr, "\033[36m%s\033[0m", aws.ToString(c.Name))
 	}
 	fmt.Fprintln(os.Stderr)
 
-	needsInteractive := !instrumentFlags.enableAPM && !instrumentFlags.enableLogs && instrumentFlags.language == ""
-	needsRunPrompt := instrumentFlags.register && !instrumentFlags.run
-
-	var p *prompt.Prompter
-	if needsInteractive || needsRunPrompt {
-		p, err = newPrompter()
-		if err != nil {
-			return err
-		}
-		defer p.Close()
+	p, err := newPrompter()
+	if err != nil {
+		return err
 	}
+	defer p.Close()
 
-	var opts instrument.Options
-	var decisions instrument.ReplaceDecision
-
-	if needsInteractive {
-		opts, decisions = resolveInteractive(p, td, family)
-	} else {
-		opts, decisions = buildOptionsNonInteractive(td)
-	}
+	opts, decisions := resolveInteractive(ctx, p, td, family)
 
 	result := instrument.Patch(td, opts, decisions)
 	reg, err := handleOutput(td, family, result, opts, ctx, client)
@@ -273,67 +256,105 @@ func runSingleInstrument(ctx context.Context, client *mwaws.Client, newPrompter 
 	return nil
 }
 
-func resolveInteractiveFlags(p *prompt.Prompter, _ string) {
+// appContainerImage returns the image URI of the first essential app container
+// in the task definition, skipping known MW/sidecar containers. Returns an
+// empty string when no suitable container is found.
+func appContainerImage(td *ecstypes.TaskDefinition) string {
+	skip := map[string]bool{
+		instrument.ContainerMWAgent:  true,
+		instrument.ContainerInit:     true,
+		instrument.ContainerFirelens: true,
+	}
+	for _, c := range td.ContainerDefinitions {
+		if aws.ToBool(c.Essential) && !skip[aws.ToString(c.Name)] {
+			return aws.ToString(c.Image)
+		}
+	}
+	return ""
+}
+
+func resolveInteractiveFlags(p *prompt.Prompter) {
+	fmt.Fprintf(os.Stderr, "\n\033[36m━━━ Global Configuration ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m\n")
 	if !instrumentFlags.enableAPM {
-		instrumentFlags.enableAPM = p.AskYesNo("Enable APM auto-instrumentation (init container)?", true)
+		instrumentFlags.enableAPM = p.AskYesNo("Enable APM auto-instrumentation?", true)
 	}
 	if !instrumentFlags.enableLogs {
-		instrumentFlags.enableLogs = p.AskYesNo("Add FireLens log routing (Fluent Bit sidecar + awsfirelens on app)?", true)
+		instrumentFlags.enableLogs = p.AskYesNo("Add FireLens log routing?", true)
 	}
 }
 
-func resolveInteractive(p *prompt.Prompter, td *ecstypes.TaskDefinition, family string) (instrument.Options, instrument.ReplaceDecision) {
-	var decisions instrument.ReplaceDecision
+func resolveInteractive(ctx context.Context, p *prompt.Prompter, td *ecstypes.TaskDefinition, family string) (instrument.Options, instrument.ReplaceDecision) {
+	decisions := instrument.ReplaceDecision{
+		ReplaceMWAgent:  true,
+		ReplaceInit:     true,
+		ReplaceFirelens: true,
+	}
 	enableAPM := instrumentFlags.enableAPM
 	enableLogs := instrumentFlags.enableLogs
 	fargate := instrumentFlags.fargate
 
-	if instrument.HasContainer(td.ContainerDefinitions, instrument.ContainerMWAgent) {
-		fmt.Fprintln(os.Stderr, "\033[33m[WARN]\033[0m  Task definition already has an 'mw-agent' sidecar container.")
-		decisions.ReplaceMWAgent = p.AskYesNo("Replace it?", false)
-	} else {
-		decisions.ReplaceMWAgent = true
-	}
-
-	if instrument.HasContainer(td.ContainerDefinitions, instrument.ContainerInit) {
-		fmt.Fprintln(os.Stderr, "\033[33m[WARN]\033[0m  Task definition already has an 'instrumentation-init' container.")
-		decisions.ReplaceInit = p.AskYesNo("Replace it?", false)
-		if !decisions.ReplaceInit {
-			enableAPM = false
-		}
-	}
-
-	if instrument.HasContainer(td.ContainerDefinitions, instrument.ContainerFirelens) {
-		fmt.Fprintln(os.Stderr, "\033[33m[WARN]\033[0m  Task definition already has a 'log_router' container.")
-		decisions.ReplaceFirelens = p.AskYesNo("Replace it?", false)
-		if !decisions.ReplaceFirelens {
-			enableLogs = false
-		}
-	}
+	// ── APM ──────────────────────────────────────────────────────
+	fmt.Fprintf(os.Stderr, "\n\033[36m━━━ APM Configuration ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m\n")
 
 	if !enableAPM {
-		enableAPM = p.AskYesNo("Enable APM auto-instrumentation (init container)?", true)
+		enableAPM = p.AskYesNo("Enable APM auto-instrumentation?", true)
 	}
 
-	lang := instrument.Language(instrumentFlags.language)
+	langStr := instrumentFlags.language
+	libcStr := instrumentFlags.libc
+	if enableAPM && langStr == "" {
+		if imageURI := appContainerImage(td); imageURI != "" {
+			fmt.Fprintf(os.Stderr, "\n  Detecting language from image: \033[36m%s\033[0m\n", imageURI)
+			detectedLang, detectedLibC, err := instrument.DetectLanguage(ctx, imageURI)
+			if err == nil && detectedLang.Valid() {
+				fmt.Fprintf(os.Stderr, "  \033[32m✔\033[0m Language: \033[1m%s\033[0m  |  LibC: \033[1m%s\033[0m\n", string(detectedLang), string(detectedLibC))
+				langStr = string(detectedLang)
+				if libcStr == "" {
+					libcStr = string(detectedLibC)
+				}
+			} else {
+				fmt.Fprintf(os.Stderr, "  \033[33m!\033[0m Could not auto-detect language\n")
+			}
+		}
+	}
+	if enableAPM && langStr == "" {
+		_, langStr = p.AskChoice("Select the APM language:", []string{"java", "node", "python"})
+	}
+	lang := instrument.Language(langStr)
+
+	if enableAPM && libcStr == "" {
+		_, libcStr = p.AskChoice("Select the C library variant:", []string{"glibc", "musl"})
+	}
+	libc := instrument.LibC(libcStr)
+
+	// ── Logs ─────────────────────────────────────────────────────
+	fmt.Fprintf(os.Stderr, "\n\033[36m━━━ Log Configuration ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m\n")
 
 	if !enableLogs {
-		enableLogs = p.AskYesNo("Add FireLens log routing (Fluent Bit sidecar + awsfirelens on app)?", true)
+		hasLogRouter := instrument.HasContainer(td.ContainerDefinitions, instrument.ContainerFirelens)
+		if hasLogRouter {
+			enableLogs = true
+		} else {
+			enableLogs = p.AskYesNo("Add FireLens log routing?", true)
+		}
 	}
 
 	if enableLogs && instrument.HasExistingLogConfig(td.ContainerDefinitions) {
 		existing := instrument.DetectLogConfig(td.ContainerDefinitions)
-		fmt.Fprintf(os.Stderr, "\033[33m[WARN]\033[0m  App containers already have log configuration: %s\n", existing)
-		decisions.OverrideLogConfig = p.AskYesNo("Override existing log configuration with awsfirelens?", false)
+		fmt.Fprintf(os.Stderr, "\n  \033[33m!\033[0m Existing log config detected: \033[1m%s\033[0m\n", existing)
+		decisions.OverrideLogConfig = p.AskYesNo("Override with awsfirelens?", false)
 	} else if enableLogs {
 		decisions.OverrideLogConfig = true
 	}
+
+	// ── Infrastructure ───────────────────────────────────────────
+	fmt.Fprintf(os.Stderr, "\n\033[36m━━━ Infrastructure ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m\n")
 
 	if !fargate {
 		detectedLaunch := instrument.DetectLaunchType(td.Compatibilities)
 		if detectedLaunch == "FARGATE" {
 			fargate = true
-			fmt.Fprintln(os.Stderr, "\033[36m[INFO]\033[0m  Detected Fargate compatibility, using awsvpc network mode")
+			fmt.Fprintf(os.Stderr, "\n  \033[32m✔\033[0m Detected Fargate — using awsvpc network mode\n")
 		} else {
 			_, chosen := p.AskChoice("Select the launch type:", []string{"EC2", "FARGATE"})
 			fargate = chosen == "FARGATE"
@@ -342,21 +363,23 @@ func resolveInteractive(p *prompt.Prompter, td *ecstypes.TaskDefinition, family 
 
 	serviceName := instrumentFlags.serviceName
 	if serviceName == "" && enableAPM {
-		serviceName = p.AskString("MW_SERVICE_NAME for the app container", family)
+		serviceName = p.AskString("Service name", family)
 	}
 
 	return instrument.Options{
-		MWApiKey:    instrumentFlags.mwApiKey,
-		MWTarget:    instrumentFlags.mwTarget,
-		ServiceName: serviceName,
-		Language:    lang,
-		EnableAPM:   enableAPM,
-		EnableLogs:  enableLogs,
-		Fargate:     fargate,
+		MWApiKey:           instrumentFlags.mwApiKey,
+		MWTarget:           instrumentFlags.mwTarget,
+		ServiceName:        serviceName,
+		Language:           lang,
+		LibC:               libc,
+		EnableAPM:          enableAPM,
+		EnableLogs:         enableLogs,
+		Fargate:            fargate,
+		LocalhostReachable: fargate || instrument.IsLocalhostReachable(td.NetworkMode),
 	}, decisions
 }
 
-func buildOptionsNonInteractive(td *ecstypes.TaskDefinition) (instrument.Options, instrument.ReplaceDecision) {
+func buildOptionsPerTask(ctx context.Context, p *prompt.Prompter, td *ecstypes.TaskDefinition) (instrument.Options, instrument.ReplaceDecision) {
 	family := aws.ToString(td.Family)
 	serviceName := instrumentFlags.serviceName
 	if serviceName == "" {
@@ -368,14 +391,41 @@ func buildOptionsNonInteractive(td *ecstypes.TaskDefinition) (instrument.Options
 		fargate = true
 	}
 
+	lang := instrumentFlags.language
+	libc := instrumentFlags.libc
+	if instrumentFlags.enableAPM && lang == "" {
+		if imageURI := appContainerImage(td); imageURI != "" {
+			fmt.Fprintf(os.Stderr, "\n  Detecting language from image: \033[36m%s\033[0m\n", imageURI)
+			detectedLang, detectedLibC, err := instrument.DetectLanguage(ctx, imageURI)
+			if err == nil && detectedLang.Valid() {
+				fmt.Fprintf(os.Stderr, "  \033[32m✔\033[0m Language: \033[1m%s\033[0m  |  LibC: \033[1m%s\033[0m\n", string(detectedLang), string(detectedLibC))
+				lang = string(detectedLang)
+				if libc == "" {
+					libc = string(detectedLibC)
+				}
+			} else {
+				fmt.Fprintf(os.Stderr, "  \033[33m!\033[0m Could not auto-detect language\n")
+			}
+		}
+	}
+	if instrumentFlags.enableAPM && lang == "" {
+		_, lang = p.AskChoice("Select the APM language:", []string{"java", "node", "python"})
+	}
+
+	if instrumentFlags.enableAPM && libc == "" {
+		_, libc = p.AskChoice("Select the C library variant:", []string{"glibc", "musl"})
+	}
+
 	return instrument.Options{
-		MWApiKey:    instrumentFlags.mwApiKey,
-		MWTarget:    instrumentFlags.mwTarget,
-		ServiceName: serviceName,
-		Language:    instrument.Language(instrumentFlags.language),
-		EnableAPM:   instrumentFlags.enableAPM,
-		EnableLogs:  instrumentFlags.enableLogs,
-		Fargate:     fargate,
+		MWApiKey:           instrumentFlags.mwApiKey,
+		MWTarget:           instrumentFlags.mwTarget,
+		ServiceName:        serviceName,
+		Language:           instrument.Language(lang),
+		LibC:               instrument.LibC(libc),
+		EnableAPM:          instrumentFlags.enableAPM,
+		EnableLogs:         instrumentFlags.enableLogs,
+		Fargate:            fargate,
+		LocalhostReachable: fargate || instrument.IsLocalhostReachable(td.NetworkMode),
 	}, instrument.ReplaceDecision{
 		ReplaceMWAgent:    true,
 		ReplaceInit:       true,

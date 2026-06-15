@@ -62,6 +62,7 @@ type registerContainer struct {
 	CPU                   int32                           `json:"cpu"`
 	Memory                *int32                          `json:"memory"`
 	Essential             bool                            `json:"essential"`
+	Command               []string                        `json:"command"`
 	PortMappings          []registerPortMapping           `json:"portMappings"`
 	Environment           []registerKeyValuePair          `json:"environment"`
 	MountPoints           []registerMountPoint            `json:"mountPoints"`
@@ -70,6 +71,7 @@ type registerContainer struct {
 	LogConfiguration      *registerLogConfiguration       `json:"logConfiguration"`
 	FirelensConfiguration *registerFirelensConfiguration  `json:"firelensConfiguration"`
 	User                  string                          `json:"user"`
+	Privileged            *bool                           `json:"privileged"`
 }
 
 type registerKeyValuePair struct {
@@ -105,9 +107,13 @@ type registerFirelensConfiguration struct {
 	Options map[string]string `json:"options"`
 }
 
+type registerHostVolumeProperties struct {
+	SourcePath string `json:"sourcePath"`
+}
+
 type registerVolume struct {
-	Name string      `json:"name"`
-	Host interface{} `json:"host"`
+	Name string                        `json:"name"`
+	Host *registerHostVolumeProperties `json:"host"`
 }
 
 func runRegister(cmd *cobra.Command, args []string) error {
@@ -180,7 +186,11 @@ func toTaskDefinition(input registerInput) ecstypes.TaskDefinition {
 	for _, v := range input.Volumes {
 		vol := ecstypes.Volume{Name: aws.String(v.Name)}
 		if v.Host != nil {
-			vol.Host = &ecstypes.HostVolumeProperties{}
+			hvp := &ecstypes.HostVolumeProperties{}
+			if v.Host.SourcePath != "" {
+				hvp.SourcePath = aws.String(v.Host.SourcePath)
+			}
+			vol.Host = hvp
 		}
 		td.Volumes = append(td.Volumes, vol)
 	}
@@ -194,8 +204,14 @@ func toTaskDefinition(input registerInput) ecstypes.TaskDefinition {
 			Essential: aws.Bool(c.Essential),
 		}
 
+		if len(c.Command) > 0 {
+			cd.Command = c.Command
+		}
 		if c.User != "" {
 			cd.User = aws.String(c.User)
+		}
+		if c.Privileged != nil {
+			cd.Privileged = c.Privileged
 		}
 
 		for _, pm := range c.PortMappings {

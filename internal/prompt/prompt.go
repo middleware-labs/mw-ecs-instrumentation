@@ -17,7 +17,7 @@ const (
 	colorBold   = "\033[1m"
 	colorReset  = "\033[0m"
 
-	iconQuestion = "?"
+	iconQuestion = "➜"
 	iconSelect   = "›"
 )
 

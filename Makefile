@@ -14,7 +14,7 @@ RPM_VERSION := $(subst -,_,$(VERSION))
 DOCKER_DIR := aws-ecs-auto-instrumentation
 DOCKER_REGISTRY ?= ghcr.io/middleware-labs
 
-.PHONY: build build-all clean test lint \
+.PHONY: build build-all clean test test-coverage lint \
 	build-linux build-linux-deb build-linux-rpm \
 	build-linux-deb-amd64 build-linux-deb-arm64 \
 	build-linux-rpm-amd64 build-linux-rpm-arm64 \
@@ -125,7 +125,12 @@ clean:
 	rm -f $(BINARY)
 
 test:
-	go test ./...
+	go test -v -count=1 ./...
+
+test-coverage:
+	go test -v -count=1 -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out
+	@rm -f coverage.out
 
 lint:
 	golangci-lint run ./...

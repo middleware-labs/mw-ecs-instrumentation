@@ -8,25 +8,62 @@ Given an existing ECS task definition, the tool injects:
 
 | Component | Container | Purpose |
 |---|---|---|
-| **MW Agent sidecar** | `mw-agent` | Collects and forwards telemetry to Middleware |
-| **APM init container** | `instrumentation-init` | Copies language-specific auto-instrumentation libraries via a shared volume |
+| **MW Agent sidecar** | `mw-agent` | Collects and forwards telemetry to Middleware via gRPC |
+| **APM init container** | `instrumentation-init` | Copies language-specific OpenTelemetry auto-instrumentation libraries into a shared volume |
 | **FireLens log router** | `log_router` | Fluent Bit sidecar with `awsfirelens` log driver on app containers |
 
 For APM, it also patches app containers with the required environment variables, volume mounts, and startup dependencies — all without touching your application code.
 
 ### Supported languages
 
-| Language | Init image | Injected env vars |
-|---|---|---|
-| Java | `aws-ecs-java-autoinstrumentation` | `JAVA_TOOL_OPTIONS` (javaagent) |
-| Node.js | `aws-ecs-node-autoinstrumentation` | `NODE_OPTIONS`, `NODE_PATH` |
-| Python | `aws-ecs-python-autoinstrumentation` | `PYTHONPATH` |
+| Language | Init Image | Mount Path | Init Command |
+|---|---|---|---|
+| Java | `autoinstrumentation-java:2.19.0` | `/otel-auto-instrumentation-java` | `cp /javaagent.jar <mount>/javaagent.jar` |
+| Node.js | `autoinstrumentation-nodejs:0.53.0` | `/otel-auto-instrumentation-nodejs` | `cp -r /autoinstrumentation/. <mount>` |
+| Python | `autoinstrumentation-python:0.59b0` | `/otel-auto-instrumentation-python` | `cp -r /autoinstrumentation/. <mount>` |
+
+All init container images are sourced from `ghcr.io/open-telemetry/opentelemetry-operator/`.
+
+For Python with musl libc (Alpine-based images), the mount path becomes `/otel-auto-instrumentation-python-musl`.
+
+### Telemetry flow
+
+```
+App Container ──OTLP──► mw-agent sidecar ──gRPC──► Middleware Backend
+```
+
+- In `awsvpc` or `host` network mode, the app sends OTLP to `http://localhost:9320` (the mw-agent sidecar)
+- In `bridge` mode, the app sends OTLP directly to the MW backend URL
+
+## Auto-Detection
+
+When `--language` is not specified, the tool automatically detects the runtime language and C library variant from the app container's Docker image — no manual input needed in most cases.
+
+**How it works:**
+
+1. Extracts the image URI from the task definition's essential container
+2. Fetches the image config via the **ECR API** (for ECR images) or the **OCI Distribution API** (for Docker Hub, GHCR, and other registries) — without pulling the full image. Uses credentials from `~/.docker/config.json` if available
+3. Inspects `Entrypoint`, `Cmd`, and environment variables to classify the language:
+   - `java`, `jar` in entrypoint/cmd → **Java**
+   - `node`, `npm`, `yarn`, `npx` → **Node.js**
+   - `python`, `gunicorn`, `uvicorn`, `flask`, `django` → **Python**
+   - Falls back to env vars: `JAVA_HOME`, `NODE_VERSION`, `PYTHON_VERSION`
+4. Detects the C library variant (glibc vs musl):
+   - `ALPINE_VERSION` in env → **musl**
+   - `alpine` or `musl` in image name/tag → **musl**
+   - Otherwise → **glibc**
+
+If detection is inconclusive, the tool falls back to an interactive prompt.
+
+**Supported registries:** Amazon ECR, Docker Hub (`docker.io`), GitHub Container Registry (`ghcr.io`), and any OCI-compliant registry.
 
 ## Installation
 
 ```bash
 # Build from source
-cd mw-ecs-instrumentation
+make build
+
+# Or directly with Go
 go build -o mw-ecs-instrument .
 
 # Move to PATH (optional)
@@ -40,45 +77,66 @@ sudo mv mw-ecs-instrument /usr/local/bin/
 ### `instrument` — Inject MW instrumentation
 
 ```bash
-# Interactive mode — prompts for APM language, logs, service name
+# Auto-detects language, prompts for remaining options
 mw-ecs-instrument instrument \
   --task-definition my-app:3 \
   --mw-api-key <key> \
   --mw-target https://<uid>.middleware.io
 
-# Non-interactive — Java APM with FireLens logs, register immediately
+# All flags provided — no prompts
 mw-ecs-instrument instrument \
   --task-definition my-app:3 \
   --mw-api-key <key> \
   --mw-target https://<uid>.middleware.io \
-  --language java --enable-apm --enable-logs --register
+  --language java --libc glibc --enable-apm --enable-logs --register
+
+# Multiple task definitions (comma-separated)
+mw-ecs-instrument instrument \
+  --task-definition my-app:3,my-api:2,my-worker:1 \
+  --mw-api-key <key> \
+  --mw-target https://<uid>.middleware.io \
+  --enable-apm --enable-logs
 
 # Batch mode — discover and instrument all task definitions
 mw-ecs-instrument instrument \
   --all \
   --mw-api-key <key> \
   --mw-target https://<uid>.middleware.io \
-  --language node --enable-apm --enable-logs --dry-run
+  --enable-apm --enable-logs --dry-run
 ```
 
 #### Flags
 
 | Flag | Required | Description |
 |---|---|---|
-| `--task-definition` | Yes* | Task definition family:revision or full ARN |
-| `--all` | Yes* | Discover and instrument all active families |
+| `--task-definition` | Yes | Task definition family:revision or full ARN (repeatable or comma-separated). Required if `--all` is not used |
+| `--all` | No | Discover and instrument all active families. Required if `--task-definition` is not provided |
 | `--mw-api-key` | Yes | Middleware API key |
 | `--mw-target` | Yes | Middleware target URL |
-| `--language` | No | APM language: `java`, `node`, `python` (interactive if omitted) |
-| `--enable-apm` | No | Add APM init container (interactive if omitted) |
-| `--enable-logs` | No | Add FireLens log routing (interactive if omitted) |
+| `--language` | No | APM language: `java`, `node`, `python` (auto-detected or prompted if omitted) |
+| `--libc` | No | C library variant: `glibc`, `musl` (auto-detected if omitted) |
+| `--enable-apm` | No | Add APM init container (prompted if omitted) |
+| `--enable-logs` | No | Add FireLens log routing (prompted if omitted) |
 | `--service-name` | No | `MW_SERVICE_NAME` for the app (defaults to family name) |
 | `--region` | No | AWS region (defaults to AWS CLI config) |
+| `--fargate` | No | Configure for Fargate (awsvpc network mode, auto-detected) |
 | `--output` | No | Output file path (defaults to `<family>-instrumented.json`) |
 | `--register` | No | Register the new revision with ECS |
+| `--run` | No | Run a task after registering (requires `--register`) |
+| `--cluster` | No | ECS cluster for `--run` (prompted if omitted) |
+| `--subnets` | No | Subnet IDs for Fargate `--run`, comma-separated |
+| `--security-groups` | No | Security group IDs for Fargate `--run`, comma-separated |
 | `--dry-run` | No | Print modified task definition to stdout without writing |
 
-\* One of `--task-definition` or `--all` is required.
+### `detect` — Test auto-detection
+
+Inspect a container image's metadata to detect language and libc. Useful for verifying auto-detection before instrumenting.
+
+```bash
+mw-ecs-instrument detect docker.io/advait11/demo-node-app
+mw-ecs-instrument detect ghcr.io/myorg/my-app:latest
+mw-ecs-instrument detect 123456789.dkr.ecr.us-east-1.amazonaws.com/my-app:latest
+```
 
 ### `discover` — List instrumentation status
 
@@ -87,18 +145,6 @@ Shows all active task definition families and whether each has the MW agent, APM
 ```bash
 mw-ecs-instrument discover
 mw-ecs-instrument discover --region us-west-2
-```
-
-Example output:
-
-```
-  FAMILY                                               MW-AGENT   APM-INIT   FIRELENS
-  ──────────────────────────────────────────────────   ────────   ────────   ────────
-  my-java-app:5                                        ✔ yes      ✔ yes      ✘ no
-  my-node-app:12                                       ✘ no       ✘ no       ✘ no
-  nginx-task:1                                         ✘ no       ✘ no       ✘ no
-
-  Instrumented: 1  |  Not instrumented: 2
 ```
 
 ### `rollback` — Revert to previous revision
@@ -112,41 +158,71 @@ mw-ecs-instrument rollback --task-definition my-app:5
 ## How it works
 
 1. Fetches the existing task definition via `DescribeTaskDefinition`
-2. Detects existing MW containers — prompts to replace or keep
-3. Injects `mw-agent` sidecar with `MW_API_KEY` and `MW_TARGET`
-4. (If APM enabled) Adds `instrumentation-init` container with a shared volume, patches app containers with language-specific env vars, mount points, and `dependsOn`
-5. (If logs enabled) Adds `log_router` (Fluent Bit) sidecar and sets `awsfirelens` logConfiguration on app containers. Existing `awslogs` configs are replaced; other log drivers are left untouched unless you confirm
-6. Recalculates task-level CPU and memory as the sum of all containers
-7. Outputs a clean, registration-ready JSON (strips server-side-only fields)
-8. Optionally registers the new revision via `RegisterTaskDefinition`
+2. **Auto-detects language and C library** from the app container's image metadata (ECR or OCI registry API)
+3. Replaces any existing MW containers (`mw-agent`, `instrumentation-init`, `log_router`)
+4. Injects `mw-agent` sidecar with platform-specific config (Fargate vs EC2)
+5. (If APM enabled) Adds `instrumentation-init` container with a copy command and shared volume, patches app containers with language-specific env vars, mount points, and `dependsOn`
+6. (If logs enabled) Adds `log_router` (Fluent Bit) sidecar and sets `awsfirelens` logConfiguration on app containers. Prompts before overriding existing log config
+7. Recalculates task-level CPU and memory (snaps to valid Fargate tiers if applicable)
+8. Outputs a clean, registration-ready JSON (strips server-side-only fields)
+9. Optionally registers the new revision and runs a task
 
 ## Safe by default
 
-- **No silent overrides** — detects existing `mw-agent`, `instrumentation-init`, and `log_router` containers and asks before replacing
+- **Auto-replace MW containers** — existing `mw-agent`, `instrumentation-init`, and `log_router` are replaced silently to ensure consistent config
+- **Log config prompt** — only prompts when overriding an existing log configuration (e.g., cloudwatch → awsfirelens)
 - **Env var merge** — MW env vars are merged by key; existing app env vars with different names are preserved
 - **Mount/volume dedup** — checks before adding to avoid duplicates
-- **Port mappings untouched** — existing port mappings on app containers are never modified
+- **Network mode preserved** — the tool never modifies the task's network mode
 - **Dry run** — preview changes with `--dry-run` before committing
+- **Graceful detection fallback** — if auto-detection fails, falls back to interactive prompts
+
+## Development
+
+```bash
+# Build
+make build
+
+# Run tests
+make test
+
+# Run tests with coverage
+make test-coverage
+
+# Build for all platforms
+make build-all
+
+# Lint
+make lint
+```
 
 ## Project structure
 
 ```
 mw-ecs-instrumentation/
-├── main.go
+├── main.go                          # Entrypoint
 ├── cmd/
-│   ├── root.go          # CLI root command
-│   ├── instrument.go    # instrument subcommand
-│   ├── discover.go      # discover subcommand
-│   └── rollback.go      # rollback subcommand
+│   ├── root.go                      # CLI root command
+│   ├── instrument.go                # instrument subcommand (single/multi/batch)
+│   ├── detect.go                    # detect subcommand (test auto-detection)
+│   ├── discover.go                  # discover subcommand
+│   ├── register.go                  # register task definition
+│   ├── rollback.go                  # rollback subcommand
+│   └── run.go                       # run a task
 ├── internal/
 │   ├── aws/
-│   │   └── client.go    # ECS API client wrapper
+│   │   └── client.go                # ECS + ECR API client wrapper
 │   ├── instrument/
-│   │   ├── constants.go # Images, volumes, language config
-│   │   ├── containers.go# Container/env var builders
-│   │   ├── patch.go     # Core patching logic
-│   │   └── serialize.go # Clean JSON output serializer
+│   │   ├── constants.go             # Images, volumes, language config, mount paths
+│   │   ├── containers.go            # Container/env var builders (Fargate + EC2)
+│   │   ├── detect.go                # Language + libc auto-detection from image metadata
+│   │   ├── detect_test.go           # Detection unit tests
+│   │   ├── patch.go                 # Core patching logic
+│   │   └── serialize.go             # Clean JSON output serializer
 │   └── prompt/
-│       └── prompt.go    # Interactive terminal prompts
+│       └── prompt.go                # Interactive terminal prompts
+├── architecture.md                  # Detailed architecture diagrams and flow
+├── doc.md                           # CLI reference with all commands and examples
+├── Makefile
 └── go.mod
 ```
