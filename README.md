@@ -1,4 +1,4 @@
-# mw-ecs-instrument
+# mw-ecs
 
 A CLI tool to auto-instrument AWS ECS task definitions with [Middleware](https://middleware.io) observability — APM tracing, sidecar agent, and FireLens log routing.
 
@@ -64,10 +64,10 @@ If detection is inconclusive, the tool falls back to an interactive prompt.
 make build
 
 # Or directly with Go
-go build -o mw-ecs-instrument .
+go build -o mw-ecs .
 
 # Move to PATH (optional)
-sudo mv mw-ecs-instrument /usr/local/bin/
+sudo mv mw-ecs /usr/local/bin/
 ```
 
 **Prerequisites:** Go 1.21+, AWS credentials configured (`aws configure` or environment variables).
@@ -78,27 +78,27 @@ sudo mv mw-ecs-instrument /usr/local/bin/
 
 ```bash
 # Auto-detects language, prompts for remaining options
-mw-ecs-instrument instrument \
+mw-ecs instrument \
   --task-definition my-app:3 \
   --mw-api-key <key> \
   --mw-target https://<uid>.middleware.io
 
 # All flags provided — no prompts
-mw-ecs-instrument instrument \
+mw-ecs instrument \
   --task-definition my-app:3 \
   --mw-api-key <key> \
   --mw-target https://<uid>.middleware.io \
   --language java --libc glibc --enable-apm --enable-logs --register
 
 # Multiple task definitions (comma-separated)
-mw-ecs-instrument instrument \
+mw-ecs instrument \
   --task-definition my-app:3,my-api:2,my-worker:1 \
   --mw-api-key <key> \
   --mw-target https://<uid>.middleware.io \
   --enable-apm --enable-logs
 
 # Batch mode — discover and instrument all task definitions
-mw-ecs-instrument instrument \
+mw-ecs instrument \
   --all \
   --mw-api-key <key> \
   --mw-target https://<uid>.middleware.io \
@@ -133,9 +133,9 @@ mw-ecs-instrument instrument \
 Inspect a container image's metadata to detect language and libc. Useful for verifying auto-detection before instrumenting.
 
 ```bash
-mw-ecs-instrument detect docker.io/advait11/demo-node-app
-mw-ecs-instrument detect ghcr.io/myorg/my-app:latest
-mw-ecs-instrument detect 123456789.dkr.ecr.us-east-1.amazonaws.com/my-app:latest
+mw-ecs detect docker.io/advait11/demo-node-app
+mw-ecs detect ghcr.io/myorg/my-app:latest
+mw-ecs detect 123456789.dkr.ecr.us-east-1.amazonaws.com/my-app:latest
 ```
 
 ### `discover` — List instrumentation status
@@ -143,8 +143,8 @@ mw-ecs-instrument detect 123456789.dkr.ecr.us-east-1.amazonaws.com/my-app:latest
 Shows all active task definition families and whether each has the MW agent, APM init container, and FireLens log router.
 
 ```bash
-mw-ecs-instrument discover
-mw-ecs-instrument discover --region us-west-2
+mw-ecs discover
+mw-ecs discover --region us-west-2
 ```
 
 ### `rollback` — Revert to previous revision
@@ -152,7 +152,7 @@ mw-ecs-instrument discover --region us-west-2
 Re-registers the previous revision as a new revision, effectively undoing the instrumentation.
 
 ```bash
-mw-ecs-instrument rollback --task-definition my-app:5
+mw-ecs rollback --task-definition my-app:5
 ```
 
 ## How it works
@@ -199,7 +199,7 @@ make lint
 ## Project structure
 
 ```
-mw-ecs-instrumentation/
+mw-ecsation/
 ├── main.go                          # Entrypoint
 ├── cmd/
 │   ├── root.go                      # CLI root command

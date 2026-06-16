@@ -22,10 +22,9 @@ before running instrument.
 
 Supports ECR, Docker Hub, GHCR, and any OCI-compliant registry.
 Uses credentials from ~/.docker/config.json automatically if available.`,
-	Example: `  mw-ecs-instrument detect docker.io/advait11/demo-node-app
-  mw-ecs-instrument detect nginx:alpine
-  mw-ecs-instrument detect ghcr.io/org/repo:v1
-  mw-ecs-instrument detect 123456789.dkr.ecr.us-east-1.amazonaws.com/my-app:latest`,
+	Example: `  mw-ecs detect docker.io/myuser/web-server:latest
+  mw-ecs detect ghcr.io/myorg/payment-service:v2
+  mw-ecs detect 123456789.dkr.ecr.us-east-1.amazonaws.com/order-worker:latest`,
 	Args: cobra.ExactArgs(1),
 	RunE: runDetect,
 }

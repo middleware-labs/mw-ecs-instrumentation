@@ -27,8 +27,8 @@ var discoverCmd = &cobra.Command{
 	Long: `Discover all active ECS task definition families in the account and show
 whether each one already has Middleware instrumentation (mw-agent, init
 container, log configuration) and the launch type.`,
-	Example: `  mw-ecs-instrument discover
-  mw-ecs-instrument discover --region us-west-2`,
+	Example: `  mw-ecs discover
+  mw-ecs discover --region us-west-2`,
 	RunE: runDiscover,
 }
 

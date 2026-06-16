@@ -73,19 +73,19 @@ var instrumentCmd = &cobra.Command{
 Use --task-definition for one or more task definitions (repeatable or comma-separated),
 or --all to discover and instrument every active task definition family in the account.`,
 	Example: `  # Single task definition
-  mw-ecs-instrument instrument --task-definition my-app:3 --mw-api-key abc --mw-target https://uid.middleware.io
+  mw-ecs instrument --task-definition web-server:3 --mw-api-key <your-api-key> --mw-target https://<your-uid>.middleware.io
 
-  # Multiple task definitions (repeatable flag)
-  mw-ecs-instrument instrument --task-definition my-app:3 --task-definition my-api:2 \
-    --mw-api-key abc --mw-target https://uid.middleware.io --language java --enable-apm --enable-logs
+  # Multiple task definitions
+  mw-ecs instrument --task-definition web-server:3 --task-definition payment-service:2 \
+    --mw-api-key <your-api-key> --mw-target https://<your-uid>.middleware.io --language java --enable-apm --enable-logs
 
-  # Multiple task definitions (comma-separated)
-  mw-ecs-instrument instrument --task-definition my-app:3,my-api:2,my-worker:1 \
-    --mw-api-key abc --mw-target https://uid.middleware.io --language java --enable-apm --enable-logs
+  # Comma-separated task definitions
+  mw-ecs instrument --task-definition web-server:3,payment-service:2,order-worker:1 \
+    --mw-api-key <your-api-key> --mw-target https://<your-uid>.middleware.io --enable-apm --enable-logs
 
-  # All families
-  mw-ecs-instrument instrument --all --mw-api-key abc --mw-target https://uid.middleware.io \
-    --language node --enable-apm --enable-logs --dry-run`,
+  # Discover and instrument all families
+  mw-ecs instrument --all --mw-api-key <your-api-key> --mw-target https://<your-uid>.middleware.io \
+    --enable-apm --enable-logs --dry-run`,
 	RunE: runInstrument,
 }
 

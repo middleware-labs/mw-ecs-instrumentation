@@ -34,13 +34,13 @@ revision.
 
 Useful for undoing an instrumentation if something went wrong.`,
 	Example: `  # Roll back a single task definition
-  mw-ecs-instrument rollback --task-definition my-app:5
+  mw-ecs rollback --task-definition web-server:5
 
   # Roll back multiple task definitions
-  mw-ecs-instrument rollback --task-definition my-app:5 --task-definition my-api:3
+  mw-ecs rollback --task-definition web-server:5 --task-definition payment-service:3
 
   # Comma-separated
-  mw-ecs-instrument rollback --task-definition my-app:5,my-api:3`,
+  mw-ecs rollback --task-definition web-server:5,payment-service:3`,
 	RunE: runRollback,
 }
 

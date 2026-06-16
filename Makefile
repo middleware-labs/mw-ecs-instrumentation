@@ -1,4 +1,4 @@
-BINARY    := mw-ecs-instrument
+BINARY    := mw-ecs
 MODULE    := github.com/middleware-labs/mw-ecs-instrumentation
 VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT    := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
@@ -14,7 +14,7 @@ RPM_VERSION := $(subst -,_,$(VERSION))
 DOCKER_DIR := aws-ecs-auto-instrumentation
 DOCKER_REGISTRY ?= ghcr.io/middleware-labs
 
-.PHONY: build build-all clean test test-coverage lint \
+.PHONY: build build-all pkg-all clean test test-coverage lint \
 	build-linux build-linux-deb build-linux-rpm \
 	build-linux-deb-amd64 build-linux-deb-arm64 \
 	build-linux-rpm-amd64 build-linux-rpm-arm64 \
@@ -27,9 +27,13 @@ DOCKER_REGISTRY ?= ghcr.io/middleware-labs
 build:
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BINARY) .
 
-# All platforms
+# All platform binaries
 build-all: build-linux-amd64 build-linux-arm64 build-darwin-amd64 build-darwin-arm64 build-windows-amd64
 	@echo "Done. Binaries in $(DIST_DIR)/"
+
+# All binaries + Linux packages (deb + rpm)
+pkg-all: build-all build-linux
+	@echo "Done. Binaries and packages in $(DIST_DIR)/"
 
 # Linux packages (deb + rpm, both arches)
 build-linux: build-linux-deb build-linux-rpm

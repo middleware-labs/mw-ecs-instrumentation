@@ -7,7 +7,7 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "mw-ecs-instrument",
+	Use:   "mw-ecs",
 	Short: "Middleware ECS auto-instrumentation CLI",
 	Long:  "Inject Middleware APM and log routing into AWS ECS task definitions.",
 }

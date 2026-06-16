@@ -51,7 +51,7 @@ Use `--task-definition` for one or more task definitions, or `--all` to discover
 
 **Auto-detects language, prompts for remaining options:**
 ```bash
-mw-ecs-instrument instrument \
+mw-ecs instrument \
   --task-definition my-app:3 \
   --mw-api-key abc123 \
   --mw-target https://uid.middleware.io
@@ -59,7 +59,7 @@ mw-ecs-instrument instrument \
 
 **All flags provided — no prompts:**
 ```bash
-mw-ecs-instrument instrument \
+mw-ecs instrument \
   --task-definition my-app:3 \
   --mw-api-key abc123 \
   --mw-target https://uid.middleware.io \
@@ -68,7 +68,7 @@ mw-ecs-instrument instrument \
 
 **Multiple task definitions** — repeatable flag:
 ```bash
-mw-ecs-instrument instrument \
+mw-ecs instrument \
   --task-definition my-app:3 --task-definition my-api:2 \
   --mw-api-key abc123 \
   --mw-target https://uid.middleware.io \
@@ -77,7 +77,7 @@ mw-ecs-instrument instrument \
 
 **Multiple task definitions** — comma-separated:
 ```bash
-mw-ecs-instrument instrument \
+mw-ecs instrument \
   --task-definition my-app:3,my-api:2,my-worker:1 \
   --mw-api-key abc123 \
   --mw-target https://uid.middleware.io \
@@ -86,7 +86,7 @@ mw-ecs-instrument instrument \
 
 **Batch mode** — discover and instrument all task definitions, dry run:
 ```bash
-mw-ecs-instrument instrument \
+mw-ecs instrument \
   --all \
   --mw-api-key abc123 \
   --mw-target https://uid.middleware.io \
@@ -95,7 +95,7 @@ mw-ecs-instrument instrument \
 
 **Register and run** — instrument, register new revision, then run a task:
 ```bash
-mw-ecs-instrument instrument \
+mw-ecs instrument \
   --task-definition my-app:3 \
   --mw-api-key abc123 \
   --mw-target https://uid.middleware.io \
@@ -105,7 +105,7 @@ mw-ecs-instrument instrument \
 
 **Fargate** — configure for Fargate with network settings:
 ```bash
-mw-ecs-instrument instrument \
+mw-ecs instrument \
   --task-definition my-app:3 \
   --mw-api-key abc123 \
   --mw-target https://uid.middleware.io \
@@ -159,7 +159,7 @@ Supports ECR, Docker Hub, GHCR, and any OCI-compliant registry. Credentials from
 
 **Docker Hub image:**
 ```bash
-mw-ecs-instrument detect docker.io/advait11/demo-node-app
+mw-ecs detect docker.io/advait11/demo-node-app
 ```
 
 Output:
@@ -172,17 +172,17 @@ Output:
 
 **Image with tag:**
 ```bash
-mw-ecs-instrument detect nginx:alpine
+mw-ecs detect nginx:alpine
 ```
 
 **GHCR image:**
 ```bash
-mw-ecs-instrument detect ghcr.io/myorg/my-app:latest
+mw-ecs detect ghcr.io/myorg/my-app:latest
 ```
 
 **ECR image** (uses AWS credentials):
 ```bash
-mw-ecs-instrument detect 123456789.dkr.ecr.us-east-1.amazonaws.com/my-app:latest
+mw-ecs detect 123456789.dkr.ecr.us-east-1.amazonaws.com/my-app:latest
 ```
 
 **When detection fails:**
@@ -213,12 +213,12 @@ List all active ECS task definition families in the account and show whether eac
 
 **Discover in default region:**
 ```bash
-mw-ecs-instrument discover
+mw-ecs discover
 ```
 
 **Discover in a specific region:**
 ```bash
-mw-ecs-instrument discover --region us-west-2
+mw-ecs discover --region us-west-2
 ```
 
 Output:
@@ -249,19 +249,19 @@ Register task definitions from JSON files as new ECS revisions. Useful when you 
 
 **Register a single file:**
 ```bash
-mw-ecs-instrument register --file my-app-instrumented.json
+mw-ecs register --file my-app-instrumented.json
 ```
 
 **Register multiple files:**
 ```bash
-mw-ecs-instrument register \
+mw-ecs register \
   --file my-app-instrumented.json \
   --file my-api-instrumented.json
 ```
 
 **Register with comma-separated files and specific region:**
 ```bash
-mw-ecs-instrument register \
+mw-ecs register \
   --file my-app-instrumented.json,my-api-instrumented.json \
   --region us-west-2
 ```
@@ -287,19 +287,19 @@ Run ECS tasks using the specified task definitions. Supports one or more task de
 
 **Run a single task:**
 ```bash
-mw-ecs-instrument run --task-definition my-app:6
+mw-ecs run --task-definition my-app:6
 ```
 
 **Run multiple tasks:**
 ```bash
-mw-ecs-instrument run \
+mw-ecs run \
   --task-definition my-app:6 \
   --task-definition my-api:3
 ```
 
 **Run with all options specified:**
 ```bash
-mw-ecs-instrument run \
+mw-ecs run \
   --task-definition my-app:6,my-api:3 \
   --cluster my-cluster \
   --launch-type EC2
@@ -307,7 +307,7 @@ mw-ecs-instrument run \
 
 **Run on Fargate with network config:**
 ```bash
-mw-ecs-instrument run \
+mw-ecs run \
   --task-definition my-app:6 \
   --cluster my-cluster \
   --launch-type FARGATE \
@@ -334,19 +334,19 @@ Useful for undoing an instrumentation if something went wrong.
 
 **Roll back a single task definition:**
 ```bash
-mw-ecs-instrument rollback --task-definition my-app:5
+mw-ecs rollback --task-definition my-app:5
 ```
 
 **Roll back multiple task definitions:**
 ```bash
-mw-ecs-instrument rollback \
+mw-ecs rollback \
   --task-definition my-app:5 \
   --task-definition my-api:3
 ```
 
 **Comma-separated:**
 ```bash
-mw-ecs-instrument rollback --task-definition my-app:5,my-api:3
+mw-ecs rollback --task-definition my-app:5,my-api:3
 ```
 
 ---
@@ -376,7 +376,7 @@ Override the region with `--region` on any command.
 The tool uses a unified flow: provided flags are used as-is, missing values are auto-detected or prompted. There is no separate interactive/non-interactive mode. To skip all prompts, provide all flags:
 
 ```bash
-mw-ecs-instrument instrument \
+mw-ecs instrument \
   --task-definition my-app:3 \
   --mw-api-key abc123 \
   --mw-target https://uid.middleware.io \

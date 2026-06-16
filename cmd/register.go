@@ -32,9 +32,9 @@ var registerCmd = &cobra.Command{
 	Long: `Register task definitions from JSON files as new ECS revisions.
 Useful when you ran the instrument command without --register and have
 local JSON files to register.`,
-	Example: `  mw-ecs-instrument register --file my-app-instrumented.json
-  mw-ecs-instrument register --file my-app-instrumented.json --file my-api-instrumented.json
-  mw-ecs-instrument register --file my-app-instrumented.json,my-api-instrumented.json --region us-west-2`,
+	Example: `  mw-ecs register --file web-server-instrumented.json
+  mw-ecs register --file web-server-instrumented.json --file payment-service-instrumented.json
+  mw-ecs register --file web-server-instrumented.json,payment-service-instrumented.json --region us-west-2`,
 	RunE: runRegister,
 }
 

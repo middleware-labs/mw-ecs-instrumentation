@@ -39,13 +39,13 @@ var runCmd = &cobra.Command{
 task definitions (repeatable or comma-separated). Useful for testing
 instrumented task definitions after registration.`,
 	Example: `  # Single task definition
-  mw-ecs-instrument run --task-definition my-app:6
+  mw-ecs run --task-definition web-server:6
 
   # Multiple task definitions
-  mw-ecs-instrument run --task-definition my-app:6 --task-definition my-api:3
+  mw-ecs run --task-definition web-server:6 --task-definition payment-service:4
 
-  # Comma-separated
-  mw-ecs-instrument run --task-definition my-app:6,my-api:3 --cluster my-cluster --launch-type EC2`,
+  # Comma-separated with cluster and launch type
+  mw-ecs run --task-definition web-server:6,payment-service:4 --cluster production --launch-type EC2`,
 	RunE: runRunCmd,
 }
 

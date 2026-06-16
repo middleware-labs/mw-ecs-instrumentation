@@ -2,7 +2,7 @@
 
 ## Overview
 
-`mw-ecs-instrument` is a CLI tool that automatically injects OpenTelemetry auto-instrumentation into AWS ECS task definitions. It adds sidecar containers, init containers, environment variables, and log routing to enable APM and log collection without modifying application code.
+`mw-ecs` is a CLI tool that automatically injects OpenTelemetry auto-instrumentation into AWS ECS task definitions. It adds sidecar containers, init containers, environment variables, and log routing to enable APM and log collection without modifying application code.
 
 ## High-Level Flow
 
@@ -295,7 +295,7 @@ For Python with musl libc, mount path becomes `/otel-auto-instrumentation-python
 ## CLI Modes
 
 ```
-mw-ecs-instrument instrument
+mw-ecs instrument
     │
     ├── --task-definition <single>     ──► runSingleInstrument
     │     unified flow: flags → auto-detect → prompt for rest
