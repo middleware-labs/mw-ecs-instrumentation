@@ -64,7 +64,7 @@ build-linux-deb-arm64: build-linux-arm64
 build-linux-rpm-amd64: build-linux-amd64
 	@echo "Building linux-rpm-amd64..."
 	@mkdir -p $(DIST_DIR)/rpm-amd64/BUILD $(DIST_DIR)/rpm-amd64/RPMS $(DIST_DIR)/rpm-amd64/SOURCES $(DIST_DIR)/rpm-amd64/SPECS $(DIST_DIR)/rpm-amd64/SRPMS
-	@printf 'Name: $(BINARY)\nVersion: $(RPM_VERSION)\nRelease: 1\nSummary: Middleware ECS auto-instrumentation CLI\nLicense: Proprietary\n\n%%description\nMiddleware ECS auto-instrumentation CLI\n\n%%install\nmkdir -p %%{buildroot}/usr/local/bin\ncp %s %%{buildroot}/opt/mw-agent/bin/$(BINARY)\n\n%%files\n/opt/mw-agent/bin/$(BINARY)\n' \
+	@printf 'Name: $(BINARY)\nVersion: $(RPM_VERSION)\nRelease: 1\nSummary: Middleware ECS auto-instrumentation CLI\nLicense: Proprietary\n\n%%description\nMiddleware ECS auto-instrumentation CLI\n\n%%install\nmkdir -p %%{buildroot}/opt/mw-agent/bin\ncp %s %%{buildroot}/opt/mw-agent/bin/$(BINARY)\n\n%%files\n/opt/mw-agent/bin/$(BINARY)\n' \
 		"$(CURDIR)/$(DIST_DIR)/$(BINARY)-linux-amd64" \
 		> $(DIST_DIR)/rpm-amd64/SPECS/$(BINARY).spec
 	@rpmbuild --define "_topdir $(CURDIR)/$(DIST_DIR)/rpm-amd64" --target x86_64 -bb $(DIST_DIR)/rpm-amd64/SPECS/$(BINARY).spec > /dev/null 2>&1
@@ -74,7 +74,7 @@ build-linux-rpm-amd64: build-linux-amd64
 build-linux-rpm-arm64: build-linux-arm64
 	@echo "Building linux-rpm-arm64..."
 	@mkdir -p $(DIST_DIR)/rpm-arm64/BUILD $(DIST_DIR)/rpm-arm64/RPMS $(DIST_DIR)/rpm-arm64/SOURCES $(DIST_DIR)/rpm-arm64/SPECS $(DIST_DIR)/rpm-arm64/SRPMS
-	@printf 'Name: $(BINARY)\nVersion: $(RPM_VERSION)\nRelease: 1\nSummary: Middleware ECS auto-instrumentation CLI\nLicense: Proprietary\n\n%%description\nMiddleware ECS auto-instrumentation CLI\n\n%%install\nmkdir -p %%{buildroot}/usr/local/bin\ncp %s %%{buildroot}/opt/mw-agent/bin/$(BINARY)\n\n%%files\n/opt/mw-agent/bin/$(BINARY)\n' \
+	@printf 'Name: $(BINARY)\nVersion: $(RPM_VERSION)\nRelease: 1\nSummary: Middleware ECS auto-instrumentation CLI\nLicense: Proprietary\n\n%%description\nMiddleware ECS auto-instrumentation CLI\n\n%%install\nmkdir -p %%{buildroot}/opt/mw-agent/bin\ncp %s %%{buildroot}/opt/mw-agent/bin/$(BINARY)\n\n%%files\n/opt/mw-agent/bin/$(BINARY)\n' \
 		"$(CURDIR)/$(DIST_DIR)/$(BINARY)-linux-arm64" \
 		> $(DIST_DIR)/rpm-arm64/SPECS/$(BINARY).spec
 	@rpmbuild --define "_topdir $(CURDIR)/$(DIST_DIR)/rpm-arm64" --target aarch64 -bb $(DIST_DIR)/rpm-arm64/SPECS/$(BINARY).spec > /dev/null 2>&1
