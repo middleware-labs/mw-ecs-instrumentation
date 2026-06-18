@@ -56,9 +56,6 @@ func init() {
 	f.BoolVar(&instrumentFlags.all, "all", false, "Discover and instrument all active task definition families")
 	f.StringVar(&instrumentFlags.libc, "libc", "", "C library variant for init container image: glibc, musl")
 
-	instrumentCmd.MarkFlagRequired("mw-api-key")
-	instrumentCmd.MarkFlagRequired("mw-target")
-
 	rootCmd.AddCommand(instrumentCmd)
 }
 
@@ -95,6 +92,20 @@ func runInstrument(cmd *cobra.Command, args []string) error {
 	}
 	if len(instrumentFlags.taskDefs) > 0 && instrumentFlags.all {
 		return fmt.Errorf("--task-definition and --all are mutually exclusive")
+	}
+
+	cfg := loadMWConfig()
+	if instrumentFlags.mwApiKey == "" {
+		instrumentFlags.mwApiKey = cfg["MW_API_KEY"]
+	}
+	if instrumentFlags.mwTarget == "" {
+		instrumentFlags.mwTarget = cfg["MW_TARGET"]
+	}
+	if instrumentFlags.mwApiKey == "" {
+		return fmt.Errorf("--mw-api-key is required (or configure via %s)", mwConfigPath)
+	}
+	if instrumentFlags.mwTarget == "" {
+		return fmt.Errorf("--mw-target is required (or configure via %s)", mwConfigPath)
 	}
 
 	ctx := cmd.Context()
