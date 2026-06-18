@@ -28,8 +28,8 @@ Use `--task-definition` for one or more task definitions, or `--all` to discover
 |---|---|---|
 | `--task-definition` | Yes | Task definition family:revision or full ARN (repeatable or comma-separated). Required if `--all` is not used |
 | `--all` | No | Discover and instrument all active families. Required if `--task-definition` is not provided |
-| `--mw-api-key` | Yes | Middleware API key |
-| `--mw-target` | Yes | Middleware target URL |
+| `--mw-api-key` | No | Middleware API key (reads from `/etc/mw-agent/mw-ecs.conf` if omitted) |
+| `--mw-target` | No | Middleware target URL (reads from `/etc/mw-agent/mw-ecs.conf` if omitted) |
 | `--language` | No | APM language: `java`, `node`, `python` (auto-detected or prompted if omitted) |
 | `--libc` | No | C library variant: `glibc`, `musl` (auto-detected if omitted) |
 | `--enable-apm` | No | Add APM init container (prompted if omitted) |
@@ -49,7 +49,12 @@ Use `--task-definition` for one or more task definitions, or `--all` to discover
 
 ### Examples
 
-**Auto-detects language, prompts for remaining options:**
+**With config file** — if installed with `MW_API_KEY` and `MW_TARGET`, no flags needed:
+```bash
+mw-ecs instrument --task-definition my-app:3
+```
+
+**With explicit credentials** — overrides config file:
 ```bash
 mw-ecs instrument \
   --task-definition my-app:3 \
@@ -61,8 +66,6 @@ mw-ecs instrument \
 ```bash
 mw-ecs instrument \
   --task-definition my-app:3 \
-  --mw-api-key abc123 \
-  --mw-target https://uid.middleware.io \
   --language java --libc glibc --enable-apm --enable-logs --register
 ```
 
@@ -70,8 +73,6 @@ mw-ecs instrument \
 ```bash
 mw-ecs instrument \
   --task-definition my-app:3 --task-definition my-api:2 \
-  --mw-api-key abc123 \
-  --mw-target https://uid.middleware.io \
   --enable-apm --enable-logs
 ```
 
@@ -79,26 +80,18 @@ mw-ecs instrument \
 ```bash
 mw-ecs instrument \
   --task-definition my-app:3,my-api:2,my-worker:1 \
-  --mw-api-key abc123 \
-  --mw-target https://uid.middleware.io \
   --enable-apm --enable-logs
 ```
 
 **Batch mode** — discover and instrument all task definitions, dry run:
 ```bash
-mw-ecs instrument \
-  --all \
-  --mw-api-key abc123 \
-  --mw-target https://uid.middleware.io \
-  --enable-apm --enable-logs --dry-run
+mw-ecs instrument --all --enable-apm --enable-logs --dry-run
 ```
 
 **Register and run** — instrument, register new revision, then run a task:
 ```bash
 mw-ecs instrument \
   --task-definition my-app:3 \
-  --mw-api-key abc123 \
-  --mw-target https://uid.middleware.io \
   --language node --enable-apm --register --run \
   --cluster my-cluster
 ```
@@ -107,8 +100,6 @@ mw-ecs instrument \
 ```bash
 mw-ecs instrument \
   --task-definition my-app:3 \
-  --mw-api-key abc123 \
-  --mw-target https://uid.middleware.io \
   --language python --enable-apm --fargate --register --run \
   --cluster my-cluster --subnets subnet-abc,subnet-def --security-groups sg-123
 ```
@@ -353,6 +344,18 @@ mw-ecs rollback --task-definition my-app:5,my-api:3
 
 ## Global Behavior
 
+### Configuration File
+
+The install script saves `MW_API_KEY` and `MW_TARGET` to `/etc/mw-agent/mw-ecs.conf`. The tool reads this file automatically when flags are not provided.
+
+**Precedence:** CLI flags > config file. Flags always win.
+
+**File format:**
+```
+MW_API_KEY=your-api-key
+MW_TARGET=https://uid.middleware.io:443
+```
+
 ### Auto-Detection
 
 When `--language` is not provided to `instrument`, the tool automatically:
@@ -376,6 +379,14 @@ Override the region with `--region` on any command.
 The tool uses a unified flow: provided flags are used as-is, missing values are auto-detected or prompted. There is no separate interactive/non-interactive mode. To skip all prompts, provide all flags:
 
 ```bash
+# With config file providing MW_API_KEY and MW_TARGET:
+mw-ecs instrument \
+  --task-definition my-app:3 \
+  --language node --libc glibc \
+  --enable-apm --enable-logs \
+  --register
+
+# Or with explicit flags:
 mw-ecs instrument \
   --task-definition my-app:3 \
   --mw-api-key abc123 \

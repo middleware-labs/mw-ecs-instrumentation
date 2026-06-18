@@ -268,6 +268,7 @@ For Python with musl libc, mount path becomes `/otel-auto-instrumentation-python
 ├── main.go                          # entrypoint
 ├── cmd/
 │   ├── root.go                      # cobra root command
+│   ├── config.go                    # config file reader (/etc/mw-agent/mw-ecs.conf)
 │   ├── instrument.go                # instrument subcommand (single/multi/batch)
 │   ├── detect.go                    # detect subcommand (test auto-detection)
 │   ├── discover.go                  # list ECS task families
@@ -291,6 +292,27 @@ For Python with musl libc, mount path becomes `/otel-auto-instrumentation-python
     ├── node/
     └── python/
 ```
+
+## Configuration Precedence
+
+```
+┌─────────────────────────────────┐
+│  CLI flags (--mw-api-key, etc.) │  ◄── highest priority
+└──────────────┬──────────────────┘
+               │ if empty
+               ▼
+┌─────────────────────────────────┐
+│  /etc/mw-agent/mw-ecs.conf     │  ◄── written by install script
+│                                 │
+│  MW_API_KEY=...                 │
+│  MW_TARGET=...                  │
+└──────────────┬──────────────────┘
+               │ if empty
+               ▼
+         error: flag required
+```
+
+The install script (`mw-ecs-tool-install.sh`) writes the config file when `MW_API_KEY` and `MW_TARGET` are passed as environment variables during installation.
 
 ## CLI Modes
 

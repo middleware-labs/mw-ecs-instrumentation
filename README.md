@@ -59,25 +59,56 @@ If detection is inconclusive, the tool falls back to an interactive prompt.
 
 ## Installation
 
+### One-line install (Linux / macOS)
+
 ```bash
-# Build from source
+MW_API_KEY=<your-key> MW_TARGET=https://<uid>.middleware.io:443 \
+  bash -c "$(curl -L https://install.middleware.io/scripts/mw-ecs-install.sh)"
+```
+
+This installs the `mw-ecs` binary (via `.deb`, `.rpm`, or raw binary depending on your OS) and saves `MW_API_KEY` and `MW_TARGET` to `/etc/mw-agent/mw-ecs.conf` so you don't need to pass them as flags every time.
+
+You can also install without credentials and configure later:
+
+```bash
+bash -c "$(curl -L https://install.middleware.io/scripts/mw-ecs-install.sh)"
+```
+
+### Build from source
+
+```bash
 make build
 
 # Or directly with Go
 go build -o mw-ecs .
-
-# Move to PATH (optional)
-sudo mv mw-ecs /usr/local/bin/
 ```
 
 **Prerequisites:** Go 1.21+, AWS credentials configured (`aws configure` or environment variables).
+
+## Configuration
+
+The tool reads `MW_API_KEY` and `MW_TARGET` with the following precedence:
+
+1. **CLI flags** (`--mw-api-key`, `--mw-target`) — highest priority
+2. **Config file** (`/etc/mw-agent/mw-ecs.conf`) — written by the install script
+
+If both are configured, flags override the config file. If the config file exists, `--mw-api-key` and `--mw-target` flags can be omitted.
+
+**Config file format** (`/etc/mw-agent/mw-ecs.conf`):
+```
+MW_API_KEY=your-api-key-here
+MW_TARGET=https://uid.middleware.io:443
+```
 
 ## Commands
 
 ### `instrument` — Inject MW instrumentation
 
 ```bash
-# Auto-detects language, prompts for remaining options
+# If installed with MW_API_KEY and MW_TARGET, no need to pass them:
+mw-ecs instrument --task-definition my-app:3
+
+# Or pass them explicitly to override the config file:
 mw-ecs instrument \
   --task-definition my-app:3 \
   --mw-api-key <key> \
@@ -86,23 +117,15 @@ mw-ecs instrument \
 # All flags provided — no prompts
 mw-ecs instrument \
   --task-definition my-app:3 \
-  --mw-api-key <key> \
-  --mw-target https://<uid>.middleware.io \
   --language java --libc glibc --enable-apm --enable-logs --register
 
 # Multiple task definitions (comma-separated)
 mw-ecs instrument \
   --task-definition my-app:3,my-api:2,my-worker:1 \
-  --mw-api-key <key> \
-  --mw-target https://<uid>.middleware.io \
   --enable-apm --enable-logs
 
 # Batch mode — discover and instrument all task definitions
-mw-ecs instrument \
-  --all \
-  --mw-api-key <key> \
-  --mw-target https://<uid>.middleware.io \
-  --enable-apm --enable-logs --dry-run
+mw-ecs instrument --all --enable-apm --enable-logs --dry-run
 ```
 
 #### Flags
@@ -111,8 +134,8 @@ mw-ecs instrument \
 |---|---|---|
 | `--task-definition` | Yes | Task definition family:revision or full ARN (repeatable or comma-separated). Required if `--all` is not used |
 | `--all` | No | Discover and instrument all active families. Required if `--task-definition` is not provided |
-| `--mw-api-key` | Yes | Middleware API key |
-| `--mw-target` | Yes | Middleware target URL |
+| `--mw-api-key` | No | Middleware API key (reads from `/etc/mw-agent/mw-ecs.conf` if omitted) |
+| `--mw-target` | No | Middleware target URL (reads from `/etc/mw-agent/mw-ecs.conf` if omitted) |
 | `--language` | No | APM language: `java`, `node`, `python` (auto-detected or prompted if omitted) |
 | `--libc` | No | C library variant: `glibc`, `musl` (auto-detected if omitted) |
 | `--enable-apm` | No | Add APM init container (prompted if omitted) |
@@ -203,6 +226,7 @@ mw-ecsation/
 ├── main.go                          # Entrypoint
 ├── cmd/
 │   ├── root.go                      # CLI root command
+│   ├── config.go                    # Config file reader (/etc/mw-agent/mw-ecs.conf)
 │   ├── instrument.go                # instrument subcommand (single/multi/batch)
 │   ├── detect.go                    # detect subcommand (test auto-detection)
 │   ├── discover.go                  # discover subcommand
