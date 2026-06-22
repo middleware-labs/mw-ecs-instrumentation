@@ -6,25 +6,25 @@ import (
 )
 
 const (
-	MWAgentImage      = "ghcr.io/middleware-labs/mw-host-agent:master"
-	InitImageJava     = "ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:2.19.0"
-	InitImageNode     = "ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-nodejs:0.53.0"
-	InitImagePython   = "ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-python:0.59b0"
-	FluentBitImage    = "public.ecr.aws/aws-observability/aws-for-fluent-bit:stable"
-	VolumeName        = "mw-agent-instrumentation"
-	SidecarCPUFargate = 256
-	SidecarCPUEC2     = 100
-	SidecarMemoryEC2  = 512
-	InitCPU           = 128
-	InitMemory        = 128
-	MountPathJava     = "/otel-auto-instrumentation-java"
-	MountPathNode     = "/otel-auto-instrumentation-nodejs"
-	MountPathPython   = "/otel-auto-instrumentation-python"
+	MWAgentImage        = "ghcr.io/middleware-labs/mw-host-agent:1.20.1"
+	InitImageJava       = "ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:2.19.0"
+	InitImageNode       = "ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-nodejs:0.53.0"
+	InitImagePython     = "ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-python:0.59b0"
+	FluentBitImage      = "public.ecr.aws/aws-observability/aws-for-fluent-bit:stable"
+	VolumeName          = "mw-agent-instrumentation"
+	SidecarCPUFargate   = 256
+	SidecarCPUEC2       = 256
+	SidecarMemoryEC2    = 256
+	InitCPU             = 128
+	InitMemory          = 128
+	MountPathJava       = "/otel-auto-instrumentation-java"
+	MountPathNode       = "/otel-auto-instrumentation-nodejs"
+	MountPathPython     = "/otel-auto-instrumentation-python"
 	SidecarOTLPEndpoint = "http://localhost:9320"
 	MuslSuffix          = "-musl"
-	ContainerMWAgent  = "mw-agent"
-	ContainerInit     = "instrumentation-init"
-	ContainerFirelens = "log_router"
+	ContainerMWAgent    = "mw-agent"
+	ContainerInit       = "instrumentation-init"
+	ContainerFirelens   = "log_router"
 )
 
 type Language string
@@ -94,7 +94,7 @@ func (l Language) MountPath(libc LibC) string {
 	case LangPython:
 		base = MountPathPython
 		if libc == LibCMusl {
-			base =  base + MuslSuffix
+			base = base + MuslSuffix
 		}
 	default:
 		return ""

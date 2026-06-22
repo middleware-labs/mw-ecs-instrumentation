@@ -19,7 +19,7 @@ func newMWAgentFargate(apiKey, target string) ecstypes.ContainerDefinition {
 		Name:      aws.String(ContainerMWAgent),
 		Image:     aws.String(MWAgentImage),
 		Cpu:       SidecarCPUFargate,
-		Essential: aws.Bool(true),
+		Essential: aws.Bool(false),
 		PortMappings: []ecstypes.PortMapping{
 			{
 				Name:          aws.String("8006-tcp"),
@@ -45,7 +45,7 @@ func newMWAgentEC2(apiKey, target string) ecstypes.ContainerDefinition {
 		Image:      aws.String(MWAgentImage),
 		Cpu:        SidecarCPUEC2,
 		Memory:     aws.Int32(SidecarMemoryEC2),
-		Essential:  aws.Bool(true),
+		Essential:  aws.Bool(false),
 		Privileged: aws.Bool(true),
 		PortMappings: []ecstypes.PortMapping{
 			{
