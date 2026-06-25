@@ -51,20 +51,20 @@ func newMWAgentEC2(apiKey, target string) ecstypes.ContainerDefinition {
 			{
 				Name:          aws.String("mw-agent-9319-tcp"),
 				ContainerPort: aws.Int32(9319),
-				HostPort:      aws.Int32(9319),
+				HostPort:      aws.Int32(0),
 				Protocol:      ecstypes.TransportProtocolTcp,
 				AppProtocol:   ecstypes.ApplicationProtocolGrpc,
 			},
 			{
 				Name:          aws.String("mw-agent-8006-tcp"),
 				ContainerPort: aws.Int32(8006),
-				HostPort:      aws.Int32(8006),
+				HostPort:      aws.Int32(0),
 				Protocol:      ecstypes.TransportProtocolTcp,
 			},
 			{
 				Name:          aws.String("mw-agent-9320-tcp"),
 				ContainerPort: aws.Int32(9320),
-				HostPort:      aws.Int32(9320),
+				HostPort:      aws.Int32(0),
 				Protocol:      ecstypes.TransportProtocolTcp,
 			},
 		},
